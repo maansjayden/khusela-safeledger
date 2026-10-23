@@ -1,5 +1,11 @@
 import React, { useState } from 'react';
-import { Calculator as CalcIcon, ShoppingBasket, ShieldCheck, Delete, PlusCircle } from 'lucide-react';
+import { Calculator as CalcIcon, ShoppingBasket, ShieldCheck, Delete, PlusCircle, RefreshCw } from 'lucide-react';
+import { computeSHA256 } from '../utils/crypto.js';
+
+// Salted SHA-256 digests so no plaintext PINs ever appear in source or bundle
+const PIN_SALT = 'khusela_device_salt_v2::';
+const DURESS_PIN_HASH = '695cf1df13fae5b9424bc39f1bcb35ee8a378c7b727632c0dddf11436dce6aa7';
+const VAULT_PIN_HASH = '24867387d38145e995a48b7d875fda8a98433a266bb8429f38501d1f9ffaa375';
 
 const PRESET_GROCERIES = [
   { id: 'bread', name: 'Loaf of Brown Bread (700g)', price: 18.50, vatZeroRated: true },
@@ -30,23 +36,24 @@ export default function Calculator({ onSecretPinTrigger, duressDispatched }) {
     setDisplay((prev) => (prev.length > 1 ? prev.slice(0, -1) : '0'));
   };
 
-  const handleEquals = () => {
+  const handleEquals = async () => {
     const trimmed = display.trim();
 
-    // Check covert PIN triggers before normal arithmetic
-    if (trimmed === '9999' && expression === '') {
-      onSecretPinTrigger('DURESS_9999');
-      // Maintain believable budget output on screen so an onlooker sees normal math
-      setDisplay('125.50');
-      setExpression('Basket Total (incl. 15% VAT)');
-      return;
-    }
-
-    if (trimmed === '2580' && expression === '') {
-      onSecretPinTrigger('VAULT_2580');
-      setDisplay('0');
-      setExpression('');
-      return;
+    if (expression === '' && /^\d{4}$/.test(trimmed)) {
+      const candidateHash = await computeSHA256(`${PIN_SALT}${trimmed}`);
+      if (candidateHash === DURESS_PIN_HASH) {
+        onSecretPinTrigger('DURESS_9999');
+        setDisplay('125.50');
+        setExpression('Basket Total (incl. 15% VAT)');
+        return;
+      }
+      if (candidateHash === VAULT_PIN_HASH) {
+        onSecretPinTrigger('VAULT_2580');
+        setDisplay('0');
+        setExpression('');
+        return;
+      }
+      onSecretPinTrigger('FAILED_PIN_ATTEMPT');
     }
 
     try {

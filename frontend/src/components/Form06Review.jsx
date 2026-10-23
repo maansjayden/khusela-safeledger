@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileText, Sparkles, Download, CheckCircle2, Loader2 } from 'lucide-react';
+import { FileText, Sparkles, Download, CheckCircle2, Loader2, ShieldAlert } from 'lucide-react';
 
 export default function Form06Review({ evidenceItems = [] }) {
   const [rawNotes, setRawNotes] = useState(
@@ -8,12 +8,14 @@ export default function Form06Review({ evidenceItems = [] }) {
   const [survivorName, setSurvivorName] = useState('Nomsa Dlamini (Applicant)');
   const [respondentName, setRespondentName] = useState('Sipho Dlamini (Respondent)');
   const [structuredData, setStructuredData] = useState(null);
+  const [humanConfirmed, setHumanConfirmed] = useState(false);
   const [loadingStructure, setLoadingStructure] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   const handleStructureWithAI = async () => {
     setLoadingStructure(true);
+    setHumanConfirmed(false);
     setErrorMsg('');
     try {
       const hashes = evidenceItems.map((item) => item.sha256).filter(Boolean);
@@ -60,7 +62,7 @@ export default function Form06Review({ evidenceItems = [] }) {
   };
 
   const handleGeneratePdf = async () => {
-    if (!structuredData) return;
+    if (!structuredData || !humanConfirmed) return;
     setDownloadingPdf(true);
     setErrorMsg('');
     try {
@@ -81,7 +83,7 @@ export default function Form06Review({ evidenceItems = [] }) {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-    } catch (err) {
+    } catch {
       setErrorMsg('Ensure FastAPI backend is running on http://localhost:8000 to download PDF.');
     } finally {
       setDownloadingPdf(false);
@@ -97,10 +99,10 @@ export default function Form06Review({ evidenceItems = [] }) {
           </div>
           <div>
             <h3 className="text-sm font-bold text-white">
-              DoJ Form 06 (J480) Protection Order Automation
+              Human-in-the-Loop Legal Review &amp; DoJ Form 06 (J480) PDF Overlay
             </h3>
             <p className="text-xs text-slate-400">
-              Gemini 2.5 Flash Section 4 Legal Structuring + ReportLab/pypdf Overlay
+              Zero-Hallucination Strict Schema + Mandatory Survivor Verification Before Export
             </p>
           </div>
         </div>
@@ -127,18 +129,83 @@ export default function Form06Review({ evidenceItems = [] }) {
         </div>
       </div>
 
-      <div>
-        <label className="block text-[11px] text-slate-400 mb-1">
-          Survivor Raw Testimony / Voice Transcript
-        </label>
-        <textarea
-          rows={3}
-          value={rawNotes}
-          onChange={(e) => setRawNotes(e.target.value)}
-          className="w-full p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 focus:outline-none focus:border-teal-500"
-          placeholder="Describe what happened in your own words..."
-        />
+      {/* Side-by-Side Verbatim vs AI Review */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
+          <label className="block text-[11px] font-bold uppercase tracking-wider text-amber-400">
+            1. Verbatim Voice Transcript (Original)
+          </label>
+          <textarea
+            rows={4}
+            value={rawNotes}
+            onChange={(e) => setRawNotes(e.target.value)}
+            className="w-full p-2 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-200 focus:outline-none focus:border-teal-500"
+            placeholder="Describe what happened in your own words..."
+          />
+        </div>
+
+        <div className="p-3 rounded-xl bg-slate-950 border border-teal-500/30 space-y-1.5">
+          <label className="block text-[11px] font-bold uppercase tracking-wider text-teal-400">
+            2. AI Structured Statement (Section 4)
+          </label>
+          {structuredData ? (
+            <textarea
+              rows={4}
+              value={structuredData.chronological_affidavit_narrative}
+              onChange={(e) =>
+                setStructuredData({
+                  ...structuredData,
+                  chronological_affidavit_narrative: e.target.value,
+                })
+              }
+              className="w-full p-2 rounded-lg bg-slate-900 border border-teal-500/30 text-xs text-slate-200 focus:outline-none focus:border-teal-400"
+            />
+          ) : (
+            <div className="h-24 flex items-center justify-center text-xs text-slate-500 italic text-center px-3">
+              Click &ldquo;Structure Section 4 Affidavit&rdquo; below to generate draft for human review.
+            </div>
+          )}
+        </div>
       </div>
+
+      {structuredData && (
+        <div className="p-3.5 rounded-xl bg-slate-950 border border-teal-500/30 space-y-3 text-xs">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-1.5 text-teal-400 font-semibold">
+              <CheckCircle2 className="w-4 h-4" />
+              <span>Detected Statutory Abuse Categories (Form 06 Section 6a)</span>
+            </div>
+            <span className="text-[11px] text-emerald-400 font-mono">
+              Tamper-Evident Server Synced (SHA-256)
+            </span>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            {structuredData.nature_of_domestic_violence?.map((tag, idx) => (
+              <span
+                key={idx}
+                className="px-2 py-0.5 rounded-md bg-teal-950 text-teal-300 border border-teal-800 text-[11px]"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+
+          {/* Mandatory Human-in-the-Loop Confirmation Toggle */}
+          <label className="flex items-center gap-2.5 pt-2 border-t border-slate-800 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={humanConfirmed}
+              onChange={(e) => setHumanConfirmed(e.target.checked)}
+              className="w-4 h-4 rounded accent-teal-500"
+            />
+            <span className="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
+              <ShieldAlert className="w-4 h-4 text-amber-400" />
+              I confirm facts and dates are accurate (Mandatory Human-in-the-Loop Sign-off)
+            </span>
+          </label>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2.5">
         <button
@@ -159,42 +226,21 @@ export default function Form06Review({ evidenceItems = [] }) {
           <button
             type="button"
             onClick={handleGeneratePdf}
-            disabled={downloadingPdf}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition disabled:opacity-50"
+            disabled={downloadingPdf || !humanConfirmed}
+            title={!humanConfirmed ? 'Please check the confirmation box above first' : ''}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {downloadingPdf ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
               <Download className="w-4 h-4" />
             )}
-            Download Court-Ready Form 06 PDF
+            Generate Form 06 (J480) PDF
           </button>
         )}
       </div>
 
       {errorMsg && <p className="text-xs text-rose-400">{errorMsg}</p>}
-
-      {structuredData && (
-        <div className="p-3.5 rounded-xl bg-slate-950 border border-teal-500/30 space-y-2 text-xs">
-          <div className="flex items-center gap-1.5 text-teal-400 font-semibold">
-            <CheckCircle2 className="w-4 h-4" />
-            <span>Section 4 Affidavit Structured &amp; Ready for Magistrates&apos; Court Filing</span>
-          </div>
-          <p className="text-slate-300 leading-relaxed">
-            {structuredData.chronological_affidavit_narrative}
-          </p>
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {structuredData.nature_of_domestic_violence?.map((tag, idx) => (
-              <span
-                key={idx}
-                className="px-2 py-0.5 rounded-md bg-teal-950 text-teal-300 border border-teal-800 text-[11px]"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

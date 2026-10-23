@@ -76,3 +76,13 @@ export async function loadDecryptedEvidenceList(pin = '2580') {
 
   return results.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 }
+
+export async function purgeAllVaultData() {
+  return new Promise((resolve) => {
+    const req = indexedDB.deleteDatabase(DB_NAME);
+    req.onsuccess = () => resolve(true);
+    req.onerror = () => resolve(false);
+    req.onblocked = () => resolve(true);
+  });
+}
+
