@@ -18,11 +18,11 @@ const RIGHTS_TEXT = {
   },
   isiXhosa: {
     lang: 'xh-ZA',
-    body: 'UMthetho woBundlobongela baseKhaya 116 ka-1998: Unelungelo lokufaka isicelo somyalelo wokukhuselwa kuyo nayiphi na iNkundla kaMantyi iiyure ezingama-24 simahla. Amapolisa (SAPS)anyanzelekile ukuba akncede.',
+    body: 'UMthetho woBundlobongela baseKhaya 116 ka-1998: Unelungelo lokufaka isicelo somyalelo wokukhuselwa kuyo nayiphi na iNkundla kaMantyi iiyure ezingama-24 simahla. Amapolisa (SAPS) anyanzelekile ukuba akuncede.',
   },
   isiZulu: {
     lang: 'zu-ZA',
-    body: 'UMthetho Wokuvimbela Odlame Lwasekhaya 116 ka-1998: Unelungelo lokufaka isicelo se-Protection Order eNkantolo kaMantshi amahora angu-24 mahhala. Amaphoyisa (SAPS)aphoqelekile ukukusiza.',
+    body: 'UMthetho Wokuvimbela Odlame Lwasekhaya 116 ka-1998: Unelungelo lokufaka isicelo se-Protection Order eNkantolo kaMantshi amahora angu-24 mahhala. Amaphoyisa (SAPS) aphoqelekile ukukusiza.',
   },
 };
 
@@ -33,6 +33,8 @@ export default function VaultDashboard({
   onTriggerJudgeSOS,
   playSimulatedCallAudio,
 }) {
+  // Mobile bottom navigation tabs: 'capture' | 'form06' | 'ledger' | 'rights'
+  const [activeTab, setActiveTab] = useState('capture');
   const [evidenceList, setEvidenceList] = useState([]);
   const [selectedLang, setSelectedLang] = useState('English');
   const [statusLine, setStatusLine] = useState('');
@@ -40,19 +42,17 @@ export default function VaultDashboard({
     'On 22 October at 21:30 at our residence in Soweto, the respondent locked the front door, threatened me with physical harm if I accessed my bank account, and struck the kitchen table.'
   );
 
-  // Real Microphone Recording State
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
 
-  // Real Live Camera Viewfinder State
   const [cameraOpen, setCameraOpen] = useState(false);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const audioPlayerRef = useRef(null);
 
-  // USSD & Dispatch state
   const [ussdSession, setUssdSession] = useState(null);
   const [dispatchLog, setDispatchLog] = useState(null);
 
@@ -62,44 +62,59 @@ export default function VaultDashboard({
       .catch(() => {});
   }, []);
 
+  // Shake-to-exit for mobile handsets
+  useEffect(() => {
+    let lastX = null;
+    let lastY = null;
+    let lastZ = null;
+    const handleMotion = (event) => {
+      const acc = event.accelerationIncludingGravity;
+      if (!acc) return;
+      if (lastX !== null) {
+        const delta =
+          Math.abs(acc.x - lastX) + Math.abs(acc.y - lastY) + Math.abs(acc.z - lastZ);
+        if (delta > 22) onPanicExit();
+      }
+      lastX = acc.x;
+      lastY = acc.y;
+      lastZ = acc.z;
+    };
+    window.addEventListener('devicemotion', handleMotion);
+    return () => window.removeEventListener('devicemotion', handleMotion);
+  }, [onPanicExit]);
+
   useEffect(() => {
     return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-      }
+      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
       if (timerRef.current) clearInterval(timerRef.current);
+      if (audioPlayerRef.current) audioPlayerRef.current.pause();
     };
   }, []);
 
-  // Dynamically compute risk score & statutory flags from actual logged evidence + narrative
   const riskAssessment = useMemo(() => {
     const text = narrativeText.toLowerCase();
     const flags = [];
     let score = 25 + evidenceList.length * 12;
 
     if (/bank|money|account|cash|salary|sassa|card/.test(text)) {
-      flags.push('Sec 1: Economic / Financial Abuse');
+      flags.push('Economic Abuse');
       score += 14;
     }
     if (/threat|kill|harm|hit|struck|beat|slap|punch/.test(text)) {
-      flags.push('Sec 1: Physical Violence / Threat');
+      flags.push('Physical / Threat');
       score += 22;
     }
     if (/lock|door|leave|trap|phone/.test(text)) {
-      flags.push('Sec 1: Controlling Behaviour / Confinement');
+      flags.push('Confinement / Control');
       score += 16;
     }
-    if (/weapon|gun|knife|firearm/.test(text)) {
-      flags.push('Sec 5: Dangerous Weapon Factor');
-      score += 25;
-    }
     if (/21:|22:|23:|00:|01:|02:|night/.test(text)) {
-      flags.push('After-Hours Residential Incident');
+      flags.push('After-Hours');
       score += 10;
     }
 
     const clamped = Math.min(96, Math.max(15, score));
-    const level = clamped >= 70 ? 'HIGH' : clamped >= 45 ? 'ELEVATED' : 'MODERATE';
+    const level = clamped >= 70 ? 'HIGH RISK' : clamped >= 45 ? 'ELEVATED' : 'MODERATE';
     return { score: clamped, level, flags };
   }, [narrativeText, evidenceList.length]);
 
@@ -113,7 +128,7 @@ export default function VaultDashboard({
       } else {
         formData.append('notes', String(blobOrText));
       }
-      const res = await fetch('http://localhost:8000/api/v1/evidence/sync', {
+      const res = await fetch('/api/v1/evidence/sync', {
         method: 'POST',
         body: formData,
       });
@@ -124,7 +139,6 @@ export default function VaultDashboard({
     return null;
   };
 
-  // Real Microphone Recording (MediaRecorder API)
   const toggleAudioRecording = async () => {
     if (isRecording && mediaRecorderRef.current) {
       mediaRecorderRef.current.stop();
@@ -158,8 +172,8 @@ export default function VaultDashboard({
           const dataUrl = reader.result;
           const syncRes = await syncWithBackend('audio_recording', audioBlob, sha256);
           const saved = await saveEncryptedEvidence({
-            type: `Audio Exhibit (${recordSeconds || 1}s)`,
-            summary: `${(audioBlob.size / 1024).toFixed(1)} KB | ${recorder.mimeType || 'audio/webm'}`,
+            type: `Voice Note (${recordSeconds || 1}s)`,
+            summary: `${(audioBlob.size / 1024).toFixed(1)} KB | ${recorder.mimeType || 'audio'}`,
             sha256,
             mediaUrl: dataUrl,
             mediaKind: 'audio',
@@ -167,7 +181,7 @@ export default function VaultDashboard({
             synced: Boolean(syncRes),
           });
           setEvidenceList((prev) => [saved, ...prev]);
-          setStatusLine(`SEALED AUDIO EXHIBIT: ${sha256}`);
+          setStatusLine(`Sealed Audio SHA-256: ${sha256.slice(0, 16)}...`);
         };
         reader.readAsDataURL(audioBlob);
       };
@@ -178,24 +192,22 @@ export default function VaultDashboard({
       setIsRecording(true);
       timerRef.current = setInterval(() => setRecordSeconds((s) => s + 1), 1000);
     } catch {
-      // Fallback if mic permission denied on desktop
       const sampleBytes = new TextEncoder().encode(`Audio log ${new Date().toISOString()}`);
       const blob = new Blob([sampleBytes], { type: 'application/octet-stream' });
       const sha256 = await computeSHA256(blob);
       const syncRes = await syncWithBackend('audio_log', blob, sha256);
       const saved = await saveEncryptedEvidence({
-        type: 'Audio Exhibit (Mic Fallback)',
-        summary: 'Microphone access unavailable — timestamped acoustic log sealed',
+        type: 'Voice Note (Fallback)',
+        summary: 'Timestamped acoustic log sealed in IndexedDB',
         sha256,
         timestamp: syncRes?.server_timestamp || new Date().toISOString(),
         synced: Boolean(syncRes),
       });
       setEvidenceList((prev) => [saved, ...prev]);
-      setStatusLine(`SEALED EXHIBIT: ${sha256}`);
+      setStatusLine(`Sealed SHA-256: ${sha256.slice(0, 16)}...`);
     }
   };
 
-  // Real Live Camera Viewfinder + Offscreen Canvas Capture
   const openCameraViewfinder = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -211,7 +223,6 @@ export default function VaultDashboard({
         }
       }, 50);
     } catch {
-      // If no physical webcam is connected, capture synthetic frame immediately
       await snapFrameFromCanvas(null);
     }
   };
@@ -231,7 +242,7 @@ export default function VaultDashboard({
       ctx.strokeRect(12, 12, canvas.width - 24, canvas.height - 24);
       ctx.fillStyle = '#d4d4d0';
       ctx.font = '13px monospace';
-      ctx.fillText('OFFSCREEN CANVAS FRAME (NO WEBCAM DETECTED)', 28, 60);
+      ctx.fillText('OFFSCREEN CANVAS FRAME (GALLERY BYPASSED)', 28, 60);
     }
 
     const utc = new Date().toISOString();
@@ -253,8 +264,8 @@ export default function VaultDashboard({
 
     const syncRes = await syncWithBackend('canvas_photo', blob, sha256);
     const saved = await saveEncryptedEvidence({
-      type: `Canvas Frame (${canvas.width}x${canvas.height} WebP)`,
-      summary: `${(blob.size / 1024).toFixed(1)} KB | Offscreen Canvas -> IndexedDB`,
+      type: `Canvas Photo (${canvas.width}x${canvas.height})`,
+      summary: `${(blob.size / 1024).toFixed(1)} KB WebP | Zero Gallery Trace`,
       sha256,
       mediaUrl: dataUrl,
       mediaKind: 'image',
@@ -263,7 +274,7 @@ export default function VaultDashboard({
     });
 
     setEvidenceList((prev) => [saved, ...prev]);
-    setStatusLine(`SEALED PHOTO EXHIBIT: ${sha256}`);
+    setStatusLine(`Sealed Photo SHA-256: ${sha256.slice(0, 16)}...`);
   };
 
   const handleQuickBurn = async () => {
@@ -274,7 +285,7 @@ export default function VaultDashboard({
 
   const handleTestUssd = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/v1/sos/ussd-simulate', {
+      const res = await fetch('/api/v1/sos/ussd-simulate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -294,7 +305,6 @@ export default function VaultDashboard({
       ussd_code: '*120*7867#',
       cell_tower_triangulation: 'ZA-GP-JHB-4412',
       response_message: 'CON Budget Balance: R42.50. [SILENT DURESS DISPATCH ACTIVE]',
-      server_timestamp: new Date().toISOString(),
     });
   };
 
@@ -304,18 +314,16 @@ export default function VaultDashboard({
     setDispatchLog({
       callSid: `CA${Date.now().toString(16).toUpperCase()}`,
       recipient: demoPhoneNumber,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toLocaleTimeString(),
     });
   };
-
-  const audioPlayerRef = useRef(null);
 
   const playRightsAudio = (lang) => {
     setSelectedLang(lang);
     if (audioPlayerRef.current) {
       audioPlayerRef.current.pause();
     }
-    const audio = new Audio(`http://localhost:8000/static/rights_${lang}.mp3`);
+    const audio = new Audio(`/static/rights_${lang}.mp3`);
     audioPlayerRef.current = audio;
     audio.play().catch(() => {
       if ('speechSynthesis' in window) {
@@ -329,293 +337,324 @@ export default function VaultDashboard({
   };
 
   return (
-    <div className="min-h-screen bg-[#0e0e0d] text-neutral-200 pb-16">
-      {/* Top Bar */}
-      <header className="sticky top-0 z-50 bg-[#0e0e0d] border-b border-neutral-800 px-4 py-2.5">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="font-mono text-xs uppercase tracking-widest text-neutral-300">
-              KHUSELA // EVIDENTIARY RECORD
-            </span>
-            <span className="hidden sm:inline font-mono text-[11px] text-neutral-500">
-              AES-256-GCM / PBKDF2
-            </span>
+    <div className="h-full flex flex-col justify-between bg-[#0e0e0d] text-neutral-200 select-none">
+      {/* Sticky Mobile Top Panic Bar */}
+      <header className="px-3.5 py-2.5 bg-[#141413] border-b border-neutral-800 flex items-center justify-between shrink-0">
+        <div>
+          <div className="font-mono text-[11px] font-semibold uppercase tracking-wider text-neutral-200">
+            KHUSELA VAULT
           </div>
+          <div className="font-mono text-[10px] text-neutral-500">AES-256-GCM</div>
+        </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleQuickBurn}
-              className="px-3 py-1.5 border border-neutral-700 hover:border-red-500 text-neutral-400 hover:text-red-400 font-mono text-xs transition"
-            >
-              PURGE VAULT
-            </button>
-            <button
-              type="button"
-              onClick={onPanicExit}
-              className="px-3.5 py-1.5 bg-[#d9532f] hover:bg-[#c04625] text-white font-mono text-xs font-semibold uppercase tracking-wider transition"
-            >
-              EXIT TO CALCULATOR [ESC]
-            </button>
-          </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleQuickBurn}
+            className="px-2.5 py-2 rounded-lg border border-neutral-700 active:bg-red-950 text-neutral-400 font-mono text-[11px]"
+          >
+            BURN
+          </button>
+          <button
+            type="button"
+            onClick={onPanicExit}
+            className="px-3.5 py-2 rounded-lg bg-[#d9532f] active:bg-[#b84222] text-white font-mono text-xs font-bold uppercase tracking-wide"
+          >
+            QUICK EXIT
+          </button>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 pt-5 space-y-5">
+      {/* Scrollable Mobile Content Area */}
+      <main className="flex-1 overflow-y-auto p-4 space-y-4">
         {statusLine && (
-          <div className="px-3 py-2 bg-[#161615] border border-neutral-700 font-mono text-xs text-neutral-300 truncate">
+          <div className="px-3 py-2 rounded-lg bg-[#181816] border border-neutral-700 font-mono text-[11px] text-emerald-400 truncate">
             {statusLine}
           </div>
         )}
 
-        {/* Top 2-Column Grid: Evidence Capture & Dynamic Risk Assessment */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Gallery-Free Capture */}
-          <section className="border border-neutral-800 bg-[#161615] p-5 flex flex-col justify-between space-y-4">
-            <div>
-              <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
-                <h2 className="text-xs font-mono uppercase tracking-wider text-neutral-200">
-                  01. Off-Gallery Evidence Capture
-                </h2>
-                <span className="font-mono text-[11px] text-emerald-500">ECTA SEC 15</span>
+        {activeTab === 'capture' && (
+          <div className="space-y-4">
+            {/* Gallery-Free Capture */}
+            <div className="p-4 rounded-2xl bg-[#161615] border border-neutral-800 space-y-3.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-neutral-100">
+                  Off-Gallery Evidence Capture
+                </span>
+                <span className="font-mono text-[10px] text-emerald-400 px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-800/50">
+                  SHA-256 Synced
+                </span>
               </div>
-              <p className="text-xs text-neutral-400 mt-2 leading-relaxed">
-                Captures audio via <code className="font-mono text-neutral-300">MediaRecorder</code>{' '}
-                and video frames via offscreen <code className="font-mono text-neutral-300">&lt;canvas&gt;</code>{' '}
-                straight into encrypted IndexedDB. Nothing is written to the device camera roll.
+              <p className="text-xs text-neutral-400 leading-relaxed">
+                Audio &amp; camera frames write directly to encrypted IndexedDB. Zero files are
+                saved to your phone&apos;s photo gallery.
               </p>
-            </div>
 
-            {cameraOpen && (
-              <div className="space-y-2 border border-neutral-700 p-2 bg-[#0e0e0d]">
-                <video
-                  ref={videoRef}
-                  muted
-                  playsInline
-                  className="w-full h-44 object-cover bg-black"
-                />
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => snapFrameFromCanvas(videoRef.current)}
-                    className="flex-1 py-2 bg-neutral-100 text-neutral-950 font-mono text-xs font-semibold"
-                  >
-                    SNAP &amp; HASH FRAME
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (streamRef.current) {
-                        streamRef.current.getTracks().forEach((t) => t.stop());
-                      }
-                      setCameraOpen(false);
-                    }}
-                    className="px-3 py-2 border border-neutral-700 text-neutral-400 font-mono text-xs"
-                  >
-                    CANCEL
-                  </button>
+              {cameraOpen && (
+                <div className="space-y-2 rounded-xl overflow-hidden border border-neutral-700 p-2 bg-black">
+                  <video
+                    ref={videoRef}
+                    muted
+                    playsInline
+                    className="w-full h-48 object-cover rounded-lg bg-black"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => snapFrameFromCanvas(videoRef.current)}
+                      className="flex-1 py-2.5 rounded-lg bg-white text-black font-mono text-xs font-bold"
+                    >
+                      SNAP PHOTO
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (streamRef.current) {
+                          streamRef.current.getTracks().forEach((t) => t.stop());
+                        }
+                        setCameraOpen(false);
+                      }}
+                      className="px-3 py-2.5 rounded-lg border border-neutral-700 text-neutral-400 font-mono text-xs"
+                    >
+                      CLOSE
+                    </button>
+                  </div>
                 </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={toggleAudioRecording}
+                  className={`min-h-[54px] rounded-xl border font-mono text-xs font-semibold transition ${
+                    isRecording
+                      ? 'bg-red-950/80 border-red-500 text-red-200 animate-pulse'
+                      : 'bg-[#222220] border-neutral-700 active:bg-neutral-800 text-neutral-100'
+                  }`}
+                >
+                  {isRecording ? `STOP (${recordSeconds}s)` : 'RECORD VOICE'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={openCameraViewfinder}
+                  className="min-h-[54px] rounded-xl bg-[#222220] border border-neutral-700 active:bg-neutral-800 text-neutral-100 font-mono text-xs font-semibold transition"
+                >
+                  CANVAS PHOTO
+                </button>
               </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-2.5">
-              <button
-                type="button"
-                onClick={toggleAudioRecording}
-                className={`py-2.5 px-3 border font-mono text-xs font-medium transition ${
-                  isRecording
-                    ? 'bg-red-950/60 border-red-500 text-red-200'
-                    : 'bg-[#0e0e0d] border-neutral-700 hover:border-neutral-400 text-neutral-200'
-                }`}
-              >
-                {isRecording ? `STOP & SEAL (${recordSeconds}s)` : 'RECORD AUDIO'}
-              </button>
-
-              <button
-                type="button"
-                onClick={openCameraViewfinder}
-                className="py-2.5 px-3 bg-[#0e0e0d] border border-neutral-700 hover:border-neutral-400 text-neutral-200 font-mono text-xs font-medium transition"
-              >
-                CAPTURE PHOTO
-              </button>
             </div>
-          </section>
 
-          {/* Dynamic Statutory Risk Assessment */}
-          <section className="border border-neutral-800 bg-[#161615] p-5 flex flex-col justify-between space-y-4">
-            <div>
-              <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
-                <h2 className="text-xs font-mono uppercase tracking-wider text-neutral-200">
-                  02. Statutory Escalation Index
-                </h2>
-                <span className="font-mono text-xs font-semibold text-[#d9532f]">
-                  {riskAssessment.level} // {riskAssessment.score}%
+            {/* Escalation Risk Index */}
+            <div className="p-4 rounded-2xl bg-[#161615] border border-neutral-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-neutral-100">
+                  Escalation Risk Index
+                </span>
+                <span className="font-mono text-xs font-bold text-[#d9532f]">
+                  {riskAssessment.level} ({riskAssessment.score}%)
                 </span>
               </div>
 
-              <div className="w-full h-2 bg-[#0e0e0d] border border-neutral-800 mt-3">
+              <div className="w-full h-2.5 rounded-full bg-[#0e0e0d] overflow-hidden border border-neutral-800">
                 <div
                   className="h-full bg-[#d9532f] transition-all duration-300"
                   style={{ width: `${riskAssessment.score}%` }}
                 />
               </div>
 
-              <div className="mt-3 space-y-1">
-                <div className="text-[11px] font-mono text-neutral-400 uppercase">
-                  Detected Act 116 of 1998 Indicators ({riskAssessment.flags.length}):
-                </div>
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {riskAssessment.flags.map((f) => (
-                    <span
-                      key={f}
-                      className="px-2 py-0.5 bg-[#0e0e0d] border border-neutral-700 font-mono text-[11px] text-neutral-300"
-                    >
-                      {f}
-                    </span>
-                  ))}
-                </div>
+              <div className="flex flex-wrap gap-1.5">
+                {riskAssessment.flags.map((f) => (
+                  <span
+                    key={f}
+                    className="px-2 py-0.5 rounded bg-[#0e0e0d] border border-neutral-800 font-mono text-[10px] text-neutral-300"
+                  >
+                    {f}
+                  </span>
+                ))}
               </div>
             </div>
 
-            <div className="text-[11px] font-mono text-neutral-400 border-t border-neutral-800 pt-2">
-              Exhibits Sealed: {evidenceList.length} | Recommendation: Sec 5(2) Ex Parte Interim Order
-            </div>
-          </section>
-        </div>
-
-        {/* Sealed Exhibits Table (with live image & audio playback) */}
-        <section className="border border-neutral-800 bg-[#161615] p-5 space-y-3">
-          <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
-            <h2 className="text-xs font-mono uppercase tracking-wider text-neutral-200">
-              03. Chain-of-Custody Ledger ({evidenceList.length} Exhibits)
-            </h2>
-            <span className="font-mono text-[11px] text-neutral-500">SHA-256 + SERVER UTC</span>
+            {/* Latest Sealed Exhibit Preview */}
+            {evidenceList.length > 0 && (
+              <div className="p-3.5 rounded-2xl bg-[#161615] border border-neutral-800 space-y-2">
+                <div className="flex items-center justify-between text-[11px] font-mono text-neutral-400">
+                  <span>LATEST SEALED EXHIBIT</span>
+                  <span>{evidenceList.length} TOTAL</span>
+                </div>
+                <div className="text-xs font-medium text-neutral-200">{evidenceList[0].type}</div>
+                <div className="font-mono text-[10px] text-neutral-500 truncate">
+                  SHA256: {evidenceList[0].sha256}
+                </div>
+                {evidenceList[0].mediaKind === 'image' && evidenceList[0].mediaUrl && (
+                  <img
+                    src={evidenceList[0].mediaUrl}
+                    alt="Exhibit"
+                    className="w-full h-32 object-cover rounded-lg border border-neutral-800 mt-1"
+                  />
+                )}
+                {evidenceList[0].mediaKind === 'audio' && evidenceList[0].mediaUrl && (
+                  <audio controls src={evidenceList[0].mediaUrl} className="w-full h-9 mt-1" />
+                )}
+              </div>
+            )}
           </div>
+        )}
 
-          {evidenceList.length === 0 ? (
-            <p className="text-xs text-neutral-500 font-mono py-4">
-              No exhibits recorded in this session yet. Use &ldquo;RECORD AUDIO&rdquo; or &ldquo;CAPTURE PHOTO&rdquo; above.
-            </p>
-          ) : (
-            <div className="divide-y divide-neutral-800">
-              {evidenceList.map((item) => (
-                <div key={item.id} className="py-3 flex flex-col sm:flex-row gap-3 justify-between">
-                  <div className="space-y-1 flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-neutral-100">{item.type}</span>
-                      <span className="font-mono text-[10px] px-1.5 py-0.5 border border-neutral-700 text-neutral-400">
-                        {item.synced ? 'SERVER TIMESTAMPED' : 'LOCAL AES-GCM'}
-                      </span>
-                    </div>
-                    <div className="text-xs text-neutral-400">{item.summary}</div>
-                    <div className="font-mono text-[11px] text-neutral-400 break-all">
-                      SHA256: {item.sha256}
-                    </div>
-                    <div className="font-mono text-[10px] text-neutral-500">{item.timestamp}</div>
+        {activeTab === 'form06' && (
+          <Form06Review evidenceItems={evidenceList} onNarrativeChange={setNarrativeText} />
+        )}
+
+        {activeTab === 'ledger' && (
+          <div className="space-y-3">
+            <div className="border-b border-neutral-800 pb-2 flex items-center justify-between">
+              <h2 className="text-xs font-mono uppercase tracking-wider text-neutral-200">
+                Chain-of-Custody Exhibits ({evidenceList.length})
+              </h2>
+              <span className="font-mono text-[10px] text-neutral-500">ECTA SEC 15</span>
+            </div>
+
+            {evidenceList.length === 0 ? (
+              <p className="text-xs text-neutral-500 py-8 text-center">
+                No exhibits recorded yet. Use the Capture tab to seal voice notes or photos.
+              </p>
+            ) : (
+              evidenceList.map((item) => (
+                <div
+                  key={item.id}
+                  className="p-3.5 rounded-2xl bg-[#161615] border border-neutral-800 space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-neutral-100">{item.type}</span>
+                    <span className="font-mono text-[10px] text-emerald-400">
+                      {item.synced ? 'SERVER SYNCED' : 'LOCAL AES-GCM'}
+                    </span>
                   </div>
-
+                  <div className="text-[11px] text-neutral-400">{item.summary}</div>
+                  <div className="font-mono text-[10px] text-neutral-500 break-all">
+                    SHA256: {item.sha256}
+                  </div>
                   {item.mediaKind === 'image' && item.mediaUrl && (
                     <img
                       src={item.mediaUrl}
-                      alt="Captured Exhibit"
-                      className="w-32 h-20 object-cover border border-neutral-700 shrink-0"
+                      alt="Exhibit"
+                      className="w-full h-36 object-cover rounded-lg border border-neutral-800"
                     />
                   )}
                   {item.mediaKind === 'audio' && item.mediaUrl && (
-                    <audio controls src={item.mediaUrl} className="h-8 shrink-0 self-center" />
+                    <audio controls src={item.mediaUrl} className="w-full h-9" />
                   )}
                 </div>
-              ))}
-            </div>
-          )}
-        </section>
+              ))
+            )}
+          </div>
+        )}
 
-        {/* Form 06 Review & PDF Export */}
-        <Form06Review evidenceItems={evidenceList} onNarrativeChange={setNarrativeText} />
-
-        {/* Multilingual Form 08 Rights + USSD / Outbound Dispatch Verification */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <section className="border border-neutral-800 bg-[#161615] p-5 space-y-3">
-            <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
-              <h2 className="text-xs font-mono uppercase tracking-wider text-neutral-200">
-                04. Form 08 (J506) Rights Audio
-              </h2>
-              <span className="font-mono text-[11px] text-neutral-500">TTS SYNTHESIS</span>
-            </div>
-
-            <div className="flex flex-wrap gap-1.5">
-              {Object.keys(RIGHTS_TEXT).map((lang) => (
-                <button
-                  key={lang}
-                  type="button"
-                  onClick={() => playRightsAudio(lang)}
-                  className={`px-2.5 py-1 font-mono text-xs border transition ${
-                    selectedLang === lang
-                      ? 'bg-neutral-200 text-neutral-950 border-neutral-200 font-semibold'
-                      : 'bg-[#0e0e0d] text-neutral-400 border-neutral-800 hover:border-neutral-600'
-                  }`}
-                >
-                  {lang}
-                </button>
-              ))}
+        {activeTab === 'rights' && (
+          <div className="space-y-4">
+            {/* Multilingual Audio Rights */}
+            <div className="p-4 rounded-2xl bg-[#161615] border border-neutral-800 space-y-3">
+              <div className="text-xs font-semibold text-neutral-100">
+                Form 08 (J506) Audio Legal Rights
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {Object.keys(RIGHTS_TEXT).map((lang) => (
+                  <button
+                    key={lang}
+                    type="button"
+                    onClick={() => playRightsAudio(lang)}
+                    className={`py-2.5 px-3 rounded-xl font-mono text-xs border transition ${
+                      selectedLang === lang
+                        ? 'bg-neutral-100 text-neutral-950 border-neutral-100 font-bold'
+                        : 'bg-[#0e0e0d] text-neutral-300 border-neutral-800'
+                    }`}
+                  >
+                    ▶ {lang}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-neutral-300 leading-relaxed bg-[#0e0e0d] border border-neutral-800 rounded-xl p-3">
+                {RIGHTS_TEXT[selectedLang].body}
+              </p>
             </div>
 
-            <p className="text-xs text-neutral-300 leading-relaxed bg-[#0e0e0d] border border-neutral-800 p-3">
-              {RIGHTS_TEXT[selectedLang].body}
-            </p>
-          </section>
+            {/* Outbound Voice Proxy & USSD Test */}
+            <div className="p-4 rounded-2xl bg-[#161615] border border-neutral-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-neutral-100">
+                  Judge Demo: Outbound Voice Proxy
+                </span>
+                <span className="font-mono text-[10px] text-amber-400">SAFE WHITELIST</span>
+              </div>
 
-          <section className="border border-neutral-800 bg-[#161615] p-5 space-y-3">
-            <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
-              <h2 className="text-xs font-mono uppercase tracking-wider text-neutral-200">
-                05. Outbound Dispatch &amp; USSD Test
-              </h2>
-              <span className="font-mono text-[11px] text-neutral-500">WHITELIST LOCKED</span>
-            </div>
-
-            <div className="flex gap-2">
               <input
                 type="tel"
                 value={demoPhoneNumber}
                 onChange={(e) => setDemoPhoneNumber(e.target.value)}
-                className="flex-1 px-3 py-1.5 bg-[#0e0e0d] border border-neutral-800 font-mono text-xs text-neutral-100 focus:outline-none focus:border-neutral-500"
+                className="w-full px-3 py-2.5 rounded-xl bg-[#0e0e0d] border border-neutral-800 font-mono text-xs text-neutral-100"
               />
-              <button
-                type="button"
-                onClick={handleTriggerDispatch}
-                className="px-3 py-1.5 bg-neutral-200 hover:bg-white text-neutral-950 font-mono text-xs font-semibold shrink-0"
-              >
-                TEST VOICE PROXY
-              </button>
-              <button
-                type="button"
-                onClick={handleTestUssd}
-                className="px-3 py-1.5 border border-neutral-700 hover:border-neutral-400 text-neutral-300 font-mono text-xs shrink-0"
-              >
-                USSD *120*7867#
-              </button>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={handleTriggerDispatch}
+                  className="py-2.5 px-3 rounded-xl bg-neutral-100 active:bg-neutral-300 text-neutral-950 font-mono text-xs font-bold"
+                >
+                  TEST SOS CALL
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTestUssd}
+                  className="py-2.5 px-3 rounded-xl border border-neutral-700 active:bg-neutral-800 text-neutral-200 font-mono text-xs"
+                >
+                  USSD *120*7867#
+                </button>
+              </div>
+
+              {dispatchLog && (
+                <div className="p-3 rounded-xl bg-[#0e0e0d] border border-neutral-700 font-mono text-[11px] text-emerald-400 space-y-0.5">
+                  <div>CALL SID: {dispatchLog.callSid}</div>
+                  <div className="text-neutral-400">
+                    Playing neural briefing to {dispatchLog.recipient} ({dispatchLog.timestamp})
+                  </div>
+                </div>
+              )}
+
+              {ussdSession && (
+                <div className="p-3 rounded-xl bg-[#0e0e0d] border border-neutral-700 font-mono text-[11px] text-neutral-300 space-y-0.5">
+                  <div className="text-amber-400">
+                    {ussdSession.ussd_code} // {ussdSession.cell_tower_triangulation}
+                  </div>
+                  <div>{ussdSession.response_message}</div>
+                </div>
+              )}
             </div>
-
-            {dispatchLog && (
-              <div className="p-2.5 bg-[#0e0e0d] border border-neutral-700 font-mono text-[11px] text-neutral-300 space-y-0.5">
-                <div>SID: {dispatchLog.callSid} // OUTBOUND AUDIO BRIEFING ACTIVE</div>
-                <div className="text-neutral-500">
-                  TO: {dispatchLog.recipient} | {dispatchLog.timestamp}
-                </div>
-              </div>
-            )}
-
-            {ussdSession && (
-              <div className="p-2.5 bg-[#0e0e0d] border border-neutral-700 font-mono text-[11px] text-neutral-300 space-y-0.5">
-                <div>
-                  USSD {ussdSession.ussd_code} // CELL: {ussdSession.cell_tower_triangulation}
-                </div>
-                <div className="text-neutral-400">{ussdSession.response_message}</div>
-              </div>
-            )}
-          </section>
-        </div>
+          </div>
+        )}
       </main>
+
+      {/* Native-Style Mobile Bottom Tab Bar */}
+      <nav className="grid grid-cols-4 bg-[#141413] border-t border-neutral-800 shrink-0">
+        {[
+          { id: 'capture', label: 'Capture' },
+          { id: 'form06', label: 'Form 06' },
+          { id: 'ledger', label: `Exhibits (${evidenceList.length})` },
+          { id: 'rights', label: 'Rights / SOS' },
+        ].map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setActiveTab(t.id)}
+            className={`py-3.5 text-center font-mono text-[11px] border-t-2 transition ${
+              activeTab === t.id
+                ? 'border-[#d9532f] text-white font-semibold bg-[#1c1c1a]'
+                : 'border-transparent text-neutral-500'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }

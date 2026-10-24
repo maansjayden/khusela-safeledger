@@ -8,24 +8,12 @@ export default function App() {
   const [demoPhoneNumber, setDemoPhoneNumber] = useState('0737220854');
   const wakeLockRef = useRef(null);
   const failedPinStrikesRef = useRef(0);
+  const activeAudioRef = useRef(null);
 
   useEffect(() => {
     window.history.replaceState(null, '', '/');
-    document.title = 'Basket Calc';
+    document.title = 'Mzansi Smart-Budget';
   }, [mode]);
-
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape' && mode === 'VAULT') {
-        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-        setMode('CALCULATOR');
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [mode]);
-
-  const activeAudioRef = useRef(null);
 
   const playSimulatedCallAudio = useCallback((targetPhone) => {
     try {
@@ -53,13 +41,13 @@ export default function App() {
       if (activeAudioRef.current) {
         activeAudioRef.current.pause();
       }
-      const briefingAudio = new Audio('http://localhost:8000/static/emergency_briefing.mp3');
+      const briefingAudio = new Audio('/static/emergency_briefing.mp3');
       activeAudioRef.current = briefingAudio;
       briefingAudio.play().catch(() => {
         if ('speechSynthesis' in window) {
           window.speechSynthesis.cancel();
           const briefing = new SpeechSynthesisUtterance(
-            `Priority Duress Alert for ${targetPhone}. Coordinates locked at Latitude minus 26.2041, Longitude 28.0473. Immediate dispatch requested.`
+            `Priority Duress Alert for ${targetPhone}. Coordinates locked. Immediate dispatch requested.`
           );
           briefing.lang = 'en-ZA';
           briefing.rate = 0.98;
@@ -96,7 +84,7 @@ export default function App() {
     }
 
     try {
-      await fetch('http://localhost:8000/api/v1/sos/trigger', {
+      await fetch('/api/v1/sos/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -131,23 +119,31 @@ export default function App() {
   );
 
   const handlePanicExit = useCallback(() => {
+    if (activeAudioRef.current) {
+      activeAudioRef.current.pause();
+    }
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
     setMode('CALCULATOR');
   }, []);
 
-  if (mode === 'VAULT') {
-    return (
-      <VaultDashboard
-        onPanicExit={handlePanicExit}
-        demoPhoneNumber={demoPhoneNumber}
-        setDemoPhoneNumber={setDemoPhoneNumber}
-        onTriggerJudgeSOS={triggerSilentDuressSOS}
-        playSimulatedCallAudio={playSimulatedCallAudio}
-      />
-    );
-  }
-
-  return <Calculator onSecretPinTrigger={handleSecretPinTrigger} />;
+  return (
+    <div className="min-h-[100dvh] bg-neutral-950 flex items-center justify-center sm:py-6">
+      {/* Mobile Phone Viewport Frame (Full-bleed on phone screens, 390x844 phone bezel on desktop) */}
+      <div className="w-full max-w-[412px] h-[100dvh] sm:h-[844px] bg-[#141413] sm:rounded-[38px] sm:border-[7px] sm:border-neutral-800 sm:shadow-2xl overflow-hidden flex flex-col relative">
+        {mode === 'VAULT' ? (
+          <VaultDashboard
+            onPanicExit={handlePanicExit}
+            demoPhoneNumber={demoPhoneNumber}
+            setDemoPhoneNumber={setDemoPhoneNumber}
+            onTriggerJudgeSOS={triggerSilentDuressSOS}
+            playSimulatedCallAudio={playSimulatedCallAudio}
+          />
+        ) : (
+          <Calculator onSecretPinTrigger={handleSecretPinTrigger} />
+        )}
+      </div>
+    </div>
+  );
 }
