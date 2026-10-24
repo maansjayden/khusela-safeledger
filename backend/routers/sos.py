@@ -5,7 +5,7 @@ import logging
 from urllib.parse import urlparse
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Request
 from pydantic import BaseModel, Field
 from twilio.rest import Client
 from google import genai
@@ -213,28 +213,46 @@ def _dispatch_sync(to: str, twiml: str, sms_body: str) -> dict:
     return result
 
 
+def resolve_base_url(request: Optional[Request] = None) -> str:
+    if is_public_https_url(settings.BASE_URL):
+        return settings.BASE_URL.rstrip("/")
+    if request is not None:
+        origin = request.headers.get("origin", "").strip()
+        if is_public_https_url(origin):
+            return origin.rstrip("/")
+        proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+        host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+        if proto and host:
+            candidate = f"{proto.split(',')[0].strip()}://{host.split(',')[0].strip()}"
+            if is_public_https_url(candidate):
+                return candidate.rstrip("/")
+    return settings.BASE_URL.rstrip("/")
+
+
 @router.get("/config")
-async def sos_config():
+async def sos_config(request: Request):
     """Lets the vault show whether SOS can really reach the contact, without exposing secrets."""
     contact = trusted_contact_number()
+    effective_base = resolve_base_url(request)
     return {
         "contact_masked": mask_number(contact),
         "contact_configured": bool(contact) and not is_blocked_emergency_number(contact),
         "twilio_configured": has_twilio_credentials(),
-        "briefing_audio_public": is_public_https_url(settings.BASE_URL),
+        "briefing_audio_public": is_public_https_url(effective_base),
     }
 
 
 @router.post("/trigger")
-async def trigger_sos(payload: SOSTriggerRequest, background_tasks: BackgroundTasks):
+async def trigger_sos(payload: SOSTriggerRequest, background_tasks: BackgroundTasks, request: Request):
     """
     Call-First, Enrich-Second duress alert.
     1. Calls and texts ONLY the configured trusted contact (never emergency services).
     2. Schedules non-blocking Gemini threat extraction in the background.
     """
     target_number = trusted_contact_number()
-    audio_url = f"{settings.BASE_URL.rstrip('/')}/static/emergency_briefing.mp3"
-    audio_url = audio_url if is_public_https_url(settings.BASE_URL) else None
+    effective_base = resolve_base_url(request)
+    audio_url = f"{effective_base}/static/emergency_briefing.mp3"
+    audio_url = audio_url if is_public_https_url(effective_base) else None
 
     dispatch = {"call_sid": None, "call_status": "not_attempted", "call_error": None, "sms_status": "not_attempted"}
     if not target_number:
