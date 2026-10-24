@@ -2,12 +2,53 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: dark;
+  --scrollbar-thumb: #3f3f3a;
+  --scrollbar-track: #141413;
+}
+
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   overscroll-behavior-y: none;
   -webkit-tap-highlight-color: transparent;
 }
 
+button {
+  touch-action: manipulation;
+}
+
 .font-mono {
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+@supports not (scrollbar-width: none) {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.vault-scroller {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+@supports not (scrollbar-color: auto) {
+  .vault-scroller::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .vault-scroller::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 3px;
+  }
+
+  .vault-scroller::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
 }

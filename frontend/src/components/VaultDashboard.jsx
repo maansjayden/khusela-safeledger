@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { computeSHA256 } from '../utils/crypto.js';
+import { renderForensicCanvasFrame } from '../utils/camera.js';
 import {
   saveEncryptedEvidence,
   loadDecryptedEvidenceList,
@@ -27,37 +28,52 @@ const RIGHTS_TEXT = {
 };
 
 export default function VaultDashboard({
+  vaultPin,
   onPanicExit,
-  demoPhoneNumber,
-  setDemoPhoneNumber,
-  onTriggerJudgeSOS,
-  playSimulatedCallAudio,
+  onTriggerSOS,
+  locationStatus,
+  locationError,
+  onEnableLocation,
 }) {
   // Mobile bottom navigation tabs: 'capture' | 'form06' | 'ledger' | 'rights'
   const [activeTab, setActiveTab] = useState('capture');
   const [evidenceList, setEvidenceList] = useState([]);
   const [selectedLang, setSelectedLang] = useState('English');
   const [statusLine, setStatusLine] = useState('');
-  const [narrativeText, setNarrativeText] = useState(
-    'On 22 October at 21:30 at our residence in Soweto, the respondent locked the front door, threatened me with physical harm if I accessed my bank account, and struck the kitchen table.'
-  );
+  const [narrativeText, setNarrativeText] = useState('');
+  const [survivorName, setSurvivorName] = useState('');
+  const [respondentName, setRespondentName] = useState('');
+  const [structuredData, setStructuredData] = useState(null);
+  const [humanConfirmed, setHumanConfirmed] = useState(false);
 
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
+  const recordStartTimeRef = useRef(0);
+  const unmountedRef = useRef(false);
 
   const [cameraOpen, setCameraOpen] = useState(false);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const audioPlayerRef = useRef(null);
 
-  const [ussdSession, setUssdSession] = useState(null);
+  const saveEvidence = (record) => saveEncryptedEvidence(record, vaultPin);
+
   const [dispatchLog, setDispatchLog] = useState(null);
+  const [sosConfig, setSosConfig] = useState(null);
+  const [sosBusy, setSosBusy] = useState(false);
 
   useEffect(() => {
-    loadDecryptedEvidenceList('2580')
+    fetch('/api/v1/sos/config')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((c) => setSosConfig(c))
+      .catch(() => setSosConfig(null));
+  }, []);
+
+  useEffect(() => {
+    loadDecryptedEvidenceList(vaultPin)
       .then((items) => setEvidenceList(items))
       .catch(() => {});
   }, []);
@@ -84,7 +100,16 @@ export default function VaultDashboard({
   }, [onPanicExit]);
 
   useEffect(() => {
+    unmountedRef.current = false;
     return () => {
+      unmountedRef.current = true;
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch {
+          // ignore
+        }
+      }
       if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
       if (timerRef.current) clearInterval(timerRef.current);
       if (audioPlayerRef.current) audioPlayerRef.current.pause();
@@ -147,33 +172,63 @@ export default function VaultDashboard({
       return;
     }
 
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      setStatusLine('Microphone needs a secure (https) connection. Open the app over https or localhost.');
+      return;
+    }
+    if (typeof MediaRecorder === 'undefined') {
+      setStatusLine('This browser cannot record audio (MediaRecorder unsupported).');
+      return;
+    }
+
+    let stream;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      setStatusLine(
+        err.name === 'NotAllowedError'
+          ? 'Microphone permission was blocked. Allow it in the browser site settings.'
+          : `Microphone error: ${err.name}${err.message ? ` - ${err.message}` : ''}`
+      );
+      return;
+    }
+
+    try {
       audioChunksRef.current = [];
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : '';
-      const recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
+      const mimeType =
+        ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'].find((t) =>
+          MediaRecorder.isTypeSupported(t)
+        ) || '';
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
 
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+        if (e.data && e.data.size > 0) audioChunksRef.current.push(e.data);
       };
+      recorder.onerror = (e) => setStatusLine(`Recording error: ${e.error?.name || 'unknown'}`);
 
       recorder.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
+        if (unmountedRef.current) return;
+        if (audioChunksRef.current.length === 0) {
+          setStatusLine('Nothing was recorded. Hold the recording a little longer and try again.');
+          return;
+        }
+        const elapsedSecs = Math.max(
+          1,
+          Math.round((Date.now() - recordStartTimeRef.current) / 1000)
+        );
         const audioBlob = new Blob(audioChunksRef.current, {
-          type: recorder.mimeType || 'audio/webm',
+          type: recorder.mimeType || mimeType || 'audio/webm',
         });
         const sha256 = await computeSHA256(audioBlob);
         const reader = new FileReader();
         reader.onloadend = async () => {
+          if (unmountedRef.current) return;
           const dataUrl = reader.result;
           const syncRes = await syncWithBackend('audio_recording', audioBlob, sha256);
-          const saved = await saveEncryptedEvidence({
-            type: `Voice Note (${recordSeconds || 1}s)`,
-            summary: `${(audioBlob.size / 1024).toFixed(1)} KB | ${recorder.mimeType || 'audio'}`,
+          const saved = await saveEvidence({
+            type: `Voice Note (${elapsedSecs}s)`,
+            summary: `${(audioBlob.size / 1024).toFixed(1)} KB | ${audioBlob.type || 'audio'}`,
             sha256,
             mediaUrl: dataUrl,
             mediaKind: 'audio',
@@ -187,24 +242,15 @@ export default function VaultDashboard({
       };
 
       mediaRecorderRef.current = recorder;
-      recorder.start();
+      recordStartTimeRef.current = Date.now();
+      recorder.start(1000);
+      setStatusLine('');
       setRecordSeconds(0);
       setIsRecording(true);
       timerRef.current = setInterval(() => setRecordSeconds((s) => s + 1), 1000);
-    } catch {
-      const sampleBytes = new TextEncoder().encode(`Audio log ${new Date().toISOString()}`);
-      const blob = new Blob([sampleBytes], { type: 'application/octet-stream' });
-      const sha256 = await computeSHA256(blob);
-      const syncRes = await syncWithBackend('audio_log', blob, sha256);
-      const saved = await saveEncryptedEvidence({
-        type: 'Voice Note (Fallback)',
-        summary: 'Timestamped acoustic log sealed in IndexedDB',
-        sha256,
-        timestamp: syncRes?.server_timestamp || new Date().toISOString(),
-        synced: Boolean(syncRes),
-      });
-      setEvidenceList((prev) => [saved, ...prev]);
-      setStatusLine(`Sealed SHA-256: ${sha256.slice(0, 16)}...`);
+    } catch (err) {
+      stream.getTracks().forEach((t) => t.stop());
+      setStatusLine(`Could not start recording: ${err.name}${err.message ? ` - ${err.message}` : ''}`);
     }
   };
 
@@ -228,33 +274,8 @@ export default function VaultDashboard({
   };
 
   const snapFrameFromCanvas = async (videoEl) => {
-    const canvas = document.createElement('canvas');
-    canvas.width = videoEl?.videoWidth || 640;
-    canvas.height = videoEl?.videoHeight || 360;
-    const ctx = canvas.getContext('2d');
-
-    if (videoEl && videoEl.readyState >= 2) {
-      ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
-    } else {
-      ctx.fillStyle = '#181816';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.strokeStyle = '#52524e';
-      ctx.strokeRect(12, 12, canvas.width - 24, canvas.height - 24);
-      ctx.fillStyle = '#d4d4d0';
-      ctx.font = '13px monospace';
-      ctx.fillText('OFFSCREEN CANVAS FRAME (GALLERY BYPASSED)', 28, 60);
-    }
-
-    const utc = new Date().toISOString();
-    ctx.fillStyle = 'rgba(0,0,0,0.75)';
-    ctx.fillRect(0, canvas.height - 26, canvas.width, 26);
-    ctx.fillStyle = '#e5e5e0';
-    ctx.font = '11px monospace';
-    ctx.fillText(`UTC ${utc} // GALLERY-BYPASSED`, 10, canvas.height - 9);
-
-    const dataUrl = canvas.toDataURL('image/webp', 0.85);
-    const blob = await new Promise((r) => canvas.toBlob(r, 'image/webp', 0.85));
-    const sha256 = await computeSHA256(blob);
+    const { blob, dataUrl, sha256, timestamp, dimensions } =
+      await renderForensicCanvasFrame(videoEl);
 
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
@@ -263,18 +284,34 @@ export default function VaultDashboard({
     setCameraOpen(false);
 
     const syncRes = await syncWithBackend('canvas_photo', blob, sha256);
-    const saved = await saveEncryptedEvidence({
-      type: `Canvas Photo (${canvas.width}x${canvas.height})`,
+    const saved = await saveEvidence({
+      type: `Canvas Photo (${dimensions})`,
       summary: `${(blob.size / 1024).toFixed(1)} KB WebP | Zero Gallery Trace`,
       sha256,
       mediaUrl: dataUrl,
       mediaKind: 'image',
-      timestamp: syncRes?.server_timestamp || utc,
+      timestamp: syncRes?.server_timestamp || timestamp,
       synced: Boolean(syncRes),
     });
 
     setEvidenceList((prev) => [saved, ...prev]);
     setStatusLine(`Sealed Photo SHA-256: ${sha256.slice(0, 16)}...`);
+  };
+
+  const handleSealIncidentNote = async () => {
+    const trimmed = narrativeText.trim();
+    if (!trimmed) return;
+    const sha256 = await computeSHA256(trimmed);
+    const syncRes = await syncWithBackend('note', trimmed, sha256);
+    const saved = await saveEvidence({
+      type: 'Incident Note',
+      summary: trimmed.length > 90 ? `${trimmed.slice(0, 90)}...` : trimmed,
+      sha256,
+      timestamp: syncRes?.server_timestamp || new Date().toISOString(),
+      synced: Boolean(syncRes),
+    });
+    setEvidenceList((prev) => [saved, ...prev]);
+    setStatusLine(`Sealed Note SHA-256: ${sha256.slice(0, 16)}...`);
   };
 
   const handleQuickBurn = async () => {
@@ -283,39 +320,12 @@ export default function VaultDashboard({
     onPanicExit();
   };
 
-  const handleTestUssd = async () => {
-    try {
-      const res = await fetch('/api/v1/sos/ussd-simulate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session_id: `SE_${Date.now()}`,
-          msisdn: demoPhoneNumber,
-          ussd_string: '*120*7867#',
-        }),
-      });
-      if (res.ok) {
-        setUssdSession(await res.json());
-        return;
-      }
-    } catch {
-      // fallback
-    }
-    setUssdSession({
-      ussd_code: '*120*7867#',
-      cell_tower_triangulation: 'ZA-GP-JHB-4412',
-      response_message: 'CON Budget Balance: R42.50. [SILENT DURESS DISPATCH ACTIVE]',
-    });
-  };
-
-  const handleTriggerDispatch = () => {
-    onTriggerJudgeSOS();
-    if (playSimulatedCallAudio) playSimulatedCallAudio(demoPhoneNumber);
-    setDispatchLog({
-      callSid: `CA${Date.now().toString(16).toUpperCase()}`,
-      recipient: demoPhoneNumber,
-      timestamp: new Date().toLocaleTimeString(),
-    });
+  const handleTriggerDispatch = async () => {
+    setSosBusy(true);
+    setDispatchLog(null);
+    const res = await onTriggerSOS();
+    setDispatchLog({ ...res, at: new Date().toLocaleTimeString() });
+    setSosBusy(false);
   };
 
   const playRightsAudio = (lang) => {
@@ -366,7 +376,7 @@ export default function VaultDashboard({
       </header>
 
       {/* Scrollable Mobile Content Area */}
-      <main className="flex-1 overflow-y-auto p-4 space-y-4">
+      <main className="flex-1 overflow-y-auto p-4 space-y-4 vault-scroller">
         {statusLine && (
           <div className="px-3 py-2 rounded-lg bg-[#181816] border border-neutral-700 font-mono text-[11px] text-emerald-400 truncate">
             {statusLine}
@@ -382,7 +392,7 @@ export default function VaultDashboard({
                   Off-Gallery Evidence Capture
                 </span>
                 <span className="font-mono text-[10px] text-emerald-400 px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-800/50">
-                  SHA-256 Synced
+                  SHA-256 sealed
                 </span>
               </div>
               <p className="text-xs text-neutral-400 leading-relaxed">
@@ -422,11 +432,11 @@ export default function VaultDashboard({
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
                   onClick={toggleAudioRecording}
-                  className={`min-h-[54px] rounded-xl border font-mono text-xs font-semibold transition ${
+                  className={`min-h-[52px] rounded-xl border font-mono text-[11px] font-semibold transition ${
                     isRecording
                       ? 'bg-red-950/80 border-red-500 text-red-200 animate-pulse'
                       : 'bg-[#222220] border-neutral-700 active:bg-neutral-800 text-neutral-100'
@@ -438,9 +448,17 @@ export default function VaultDashboard({
                 <button
                   type="button"
                   onClick={openCameraViewfinder}
-                  className="min-h-[54px] rounded-xl bg-[#222220] border border-neutral-700 active:bg-neutral-800 text-neutral-100 font-mono text-xs font-semibold transition"
+                  className="min-h-[52px] rounded-xl bg-[#222220] border border-neutral-700 active:bg-neutral-800 text-neutral-100 font-mono text-[11px] font-semibold transition"
                 >
                   CANVAS PHOTO
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSealIncidentNote}
+                  className="min-h-[52px] rounded-xl bg-[#222220] border border-neutral-700 active:bg-neutral-800 text-neutral-100 font-mono text-[11px] font-semibold transition"
+                >
+                  SEAL NOTE
                 </button>
               </div>
             </div>
@@ -502,7 +520,19 @@ export default function VaultDashboard({
         )}
 
         {activeTab === 'form06' && (
-          <Form06Review evidenceItems={evidenceList} onNarrativeChange={setNarrativeText} />
+          <Form06Review
+            evidenceItems={evidenceList}
+            rawNotes={narrativeText}
+            onNarrativeChange={setNarrativeText}
+            survivorName={survivorName}
+            setSurvivorName={setSurvivorName}
+            respondentName={respondentName}
+            setRespondentName={setRespondentName}
+            structuredData={structuredData}
+            setStructuredData={setStructuredData}
+            humanConfirmed={humanConfirmed}
+            setHumanConfirmed={setHumanConfirmed}
+          />
         )}
 
         {activeTab === 'ledger' && (
@@ -578,54 +608,77 @@ export default function VaultDashboard({
               </p>
             </div>
 
-            {/* Outbound Voice Proxy & USSD Test */}
+            {/* SOS to trusted contact */}
             <div className="p-4 rounded-2xl bg-[#161615] border border-neutral-800 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-neutral-100">
-                  Judge Demo: Outbound Voice Proxy
+                <span className="text-xs font-semibold text-neutral-100">Trusted contact alert</span>
+                <span className="font-mono text-[10px] text-neutral-400">
+                  {sosConfig?.contact_masked || 'not set'}
                 </span>
-                <span className="font-mono text-[10px] text-amber-400">SAFE WHITELIST</span>
               </div>
 
-              <input
-                type="tel"
-                value={demoPhoneNumber}
-                onChange={(e) => setDemoPhoneNumber(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl bg-[#0e0e0d] border border-neutral-800 font-mono text-xs text-neutral-100"
-              />
-
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={handleTriggerDispatch}
-                  className="py-2.5 px-3 rounded-xl bg-neutral-100 active:bg-neutral-300 text-neutral-950 font-mono text-xs font-bold"
-                >
-                  TEST SOS CALL
-                </button>
-                <button
-                  type="button"
-                  onClick={handleTestUssd}
-                  className="py-2.5 px-3 rounded-xl border border-neutral-700 active:bg-neutral-800 text-neutral-200 font-mono text-xs"
-                >
-                  USSD *120*7867#
-                </button>
-              </div>
-
-              {dispatchLog && (
-                <div className="p-3 rounded-xl bg-[#0e0e0d] border border-neutral-700 font-mono text-[11px] text-emerald-400 space-y-0.5">
-                  <div>CALL SID: {dispatchLog.callSid}</div>
-                  <div className="text-neutral-400">
-                    Playing neural briefing to {dispatchLog.recipient} ({dispatchLog.timestamp})
-                  </div>
+              <div className="text-[11px] font-mono space-y-1">
+                <div className={sosConfig?.contact_configured ? 'text-emerald-400' : 'text-red-400'}>
+                  {sosConfig?.contact_configured ? '✓ Contact set' : '✗ No contact set (TRUSTED_CONTACT_NUMBER)'}
                 </div>
+                <div className={sosConfig?.twilio_configured ? 'text-emerald-400' : 'text-red-400'}>
+                  {sosConfig?.twilio_configured ? '✓ Calling service set up' : '✗ Calling service not configured'}
+                </div>
+                <div className={sosConfig?.briefing_audio_public ? 'text-emerald-400' : 'text-amber-400'}>
+                  {sosConfig?.briefing_audio_public
+                    ? '✓ Briefing audio reachable'
+                    : '! BASE_URL is not public https: call will use voice only'}
+                </div>
+                <div className={locationStatus === 'active' ? 'text-emerald-400' : 'text-amber-400'}>
+                  {locationStatus === 'active' && '✓ Live location on'}
+                  {locationStatus === 'unknown' && '! Location not enabled yet'}
+                  {locationStatus === 'denied' && '✗ Location blocked in browser settings'}
+                  {locationStatus === 'insecure' && '✗ Location needs https (or localhost)'}
+                  {locationStatus === 'unsupported' && '✗ Location unsupported on this device'}
+                </div>
+              </div>
+
+              {locationError && locationStatus !== 'active' && (
+                <div className="text-[11px] font-mono text-amber-300 break-words">{locationError}</div>
               )}
 
-              {ussdSession && (
-                <div className="p-3 rounded-xl bg-[#0e0e0d] border border-neutral-700 font-mono text-[11px] text-neutral-300 space-y-0.5">
-                  <div className="text-amber-400">
-                    {ussdSession.ussd_code} // {ussdSession.cell_tower_triangulation}
+              {locationStatus !== 'active' && locationStatus !== 'insecure' && locationStatus !== 'denied' && (
+                <button
+                  type="button"
+                  onClick={onEnableLocation}
+                  className="w-full py-2.5 rounded-xl border border-neutral-700 active:bg-neutral-800 text-neutral-200 font-mono text-xs"
+                >
+                  ENABLE LOCATION
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={handleTriggerDispatch}
+                disabled={sosBusy}
+                className="w-full py-2.5 rounded-xl bg-neutral-100 active:bg-neutral-300 text-neutral-950 font-mono text-xs font-bold disabled:opacity-50"
+              >
+                {sosBusy ? 'CALLING...' : 'SEND TEST ALERT TO CONTACT'}
+              </button>
+
+              {dispatchLog && (
+                <div className="p-3 rounded-xl bg-[#0e0e0d] border border-neutral-700 font-mono text-[11px] space-y-0.5">
+                  <div className={dispatchLog.dispatch?.call_status === 'dispatched' ? 'text-emerald-400' : 'text-red-400'}>
+                    CALL: {dispatchLog.dispatch?.call_status} ({dispatchLog.at})
                   </div>
-                  <div>{ussdSession.response_message}</div>
+                  {dispatchLog.dispatch?.call_error && (
+                    <div className="text-red-300 break-words">{dispatchLog.dispatch.call_error}</div>
+                  )}
+                  <div className="text-neutral-400">SMS: {dispatchLog.dispatch?.sms_status}</div>
+                  <div className="text-neutral-400">
+                    LOCATION:{' '}
+                    {dispatchLog.coordinates?.lat != null
+                      ? `${dispatchLog.coordinates.lat.toFixed(5)}, ${dispatchLog.coordinates.lng.toFixed(5)}` +
+                        (dispatchLog.coordinates.accuracy_m != null
+                          ? ` (±${Math.round(dispatchLog.coordinates.accuracy_m)} m)`
+                          : '')
+                      : 'none sent'}
+                  </div>
                 </div>
               )}
             </div>

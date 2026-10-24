@@ -81,7 +81,7 @@ export default function Calculator({ onSecretPinTrigger }) {
   const handleEquals = async () => {
     const raw = display.trim();
 
-    if (pendingOp === null && storedValue === null && /^\d{4}$/.test(raw)) {
+    if (pendingOp === null && storedValue === null && !resetNext && /^\d{4}$/.test(raw)) {
       const digest = await computeSHA256(`${PIN_SALT}${raw}`);
       if (digest === DURESS_PIN_HASH) {
         onSecretPinTrigger('DURESS_9999');
@@ -91,10 +91,12 @@ export default function Calculator({ onSecretPinTrigger }) {
       }
       if (digest === VAULT_PIN_HASH) {
         setDisplay('0');
-        onSecretPinTrigger('VAULT_2580');
+        onSecretPinTrigger('VAULT_2580', raw);
         return;
       }
+      setResetNext(true);
       onSecretPinTrigger('FAILED_PIN_ATTEMPT');
+      return;
     }
 
     if (pendingOp !== null && storedValue !== null) {

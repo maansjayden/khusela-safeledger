@@ -1,19 +1,43 @@
 import React, { useState } from 'react';
 
-export default function Form06Review({ evidenceItems = [], onNarrativeChange }) {
-  const [rawNotes, setRawNotes] = useState(
-    'On 22 October at 21:30 at our residence in Soweto, the respondent locked the front door, threatened me with physical harm if I accessed my bank account, and struck the kitchen table.'
-  );
-  const [survivorName, setSurvivorName] = useState('Nomsa Dlamini');
-  const [respondentName, setRespondentName] = useState('Sipho Dlamini');
-  const [structuredData, setStructuredData] = useState(null);
-  const [humanConfirmed, setHumanConfirmed] = useState(false);
+export default function Form06Review({
+  evidenceItems = [],
+  rawNotes: controlledNotes,
+  onNarrativeChange,
+  survivorName: controlledSurvivor,
+  setSurvivorName: setControlledSurvivor,
+  respondentName: controlledRespondent,
+  setRespondentName: setControlledRespondent,
+  structuredData: controlledStructured,
+  setStructuredData: setControlledStructured,
+  humanConfirmed: controlledConfirmed,
+  setHumanConfirmed: setControlledConfirmed,
+}) {
+  const [localNotes, setLocalNotes] = useState('');
+  const [localSurvivor, setLocalSurvivor] = useState('');
+  const [localRespondent, setLocalRespondent] = useState('');
+  const [localStructured, setLocalStructured] = useState(null);
+  const [localConfirmed, setLocalConfirmed] = useState(false);
+
+  const rawNotes = controlledNotes !== undefined ? controlledNotes : localNotes;
+  const survivorName = controlledSurvivor !== undefined ? controlledSurvivor : localSurvivor;
+  const setSurvivorName = setControlledSurvivor || setLocalSurvivor;
+  const respondentName =
+    controlledRespondent !== undefined ? controlledRespondent : localRespondent;
+  const setRespondentName = setControlledRespondent || setLocalRespondent;
+  const structuredData =
+    controlledStructured !== undefined ? controlledStructured : localStructured;
+  const setStructuredData = setControlledStructured || setLocalStructured;
+  const humanConfirmed =
+    controlledConfirmed !== undefined ? controlledConfirmed : localConfirmed;
+  const setHumanConfirmed = setControlledConfirmed || setLocalConfirmed;
+
   const [loadingStructure, setLoadingStructure] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   const handleNotesChange = (val) => {
-    setRawNotes(val);
+    if (controlledNotes === undefined) setLocalNotes(val);
     if (onNarrativeChange) onNarrativeChange(val);
   };
 
@@ -40,24 +64,16 @@ export default function Form06Review({ evidenceItems = [], onNarrativeChange }) 
       setStructuredData({
         applicant_full_name: survivorName,
         respondent_full_name: respondentName,
-        incident_date_time: new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
-        incident_location: 'Primary Shared Residence',
-        nature_of_domestic_violence: [
-          'Physical Abuse',
-          'Emotional, Verbal and Psychological Abuse',
-          'Economic Abuse',
-          'Intimidation',
-        ],
-        chronological_affidavit_narrative: `I, ${survivorName}, state under oath that the Respondent (${respondentName}) committed acts of domestic violence in terms of the Domestic Violence Act 116 of 1998: ${rawNotes}`,
-        weapons_or_threats_involved: 'Threats of physical violence, unlawful confinement, and financial coercion.',
-        urgency_grounds_section_4:
-          'Imminent risk of physical harm requires an urgent ex parte Interim Protection Order under Section 5(2).',
-        requested_protection_terms: [
-          'Prohibit Respondent from committing any act of domestic violence',
-          'Prohibit Respondent from entering the shared residence',
-        ],
-        evidence_sha256_manifest: evidenceItems.map((e) => e.sha256),
+        incident_date_time: '',
+        incident_location: '',
+        nature_of_domestic_violence: [],
+        chronological_affidavit_narrative: rawNotes,
+        weapons_or_threats_involved: '',
+        urgency_grounds_section_4: '',
+        requested_protection_terms: [],
+        evidence_sha256_manifest: evidenceItems.map((e) => e.sha256).filter(Boolean),
       });
+      setErrorMsg('Server unreachable. Showing your own notes unedited; nothing was added.');
     } finally {
       setLoadingStructure(false);
     }

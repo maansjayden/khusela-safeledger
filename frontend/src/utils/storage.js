@@ -18,7 +18,7 @@ function openVaultDB() {
   });
 }
 
-export async function saveEncryptedEvidence(record, pin = '2580') {
+export async function saveEncryptedEvidence(record, pin) {
   const db = await openVaultDB();
   const sha256 = record.sha256 || (await computeSHA256(record.summary || JSON.stringify(record)));
   const createdAt = record.timestamp || new Date().toISOString();
@@ -44,19 +44,31 @@ export async function saveEncryptedEvidence(record, pin = '2580') {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
     store.put(storedItem);
-    tx.oncomplete = () => resolve({ ...record, id: storedItem.id, sha256, timestamp: createdAt });
-    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => {
+      db.close();
+      resolve({ ...record, id: storedItem.id, sha256, timestamp: createdAt });
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
   });
 }
 
-export async function loadDecryptedEvidenceList(pin = '2580') {
+export async function loadDecryptedEvidenceList(pin) {
   const db = await openVaultDB();
   const rawRecords = await new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const store = tx.objectStore(STORE_NAME);
     const req = store.getAll();
-    req.onsuccess = () => resolve(req.result || []);
-    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      db.close();
+      resolve(req.result || []);
+    };
+    req.onerror = () => {
+      db.close();
+      reject(req.error);
+    };
   });
 
   const results = [];
@@ -78,6 +90,24 @@ export async function loadDecryptedEvidenceList(pin = '2580') {
 }
 
 export async function purgeAllVaultData() {
+  try {
+    const db = await openVaultDB();
+    await new Promise((resolve) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).clear();
+      tx.oncomplete = () => {
+        db.close();
+        resolve(true);
+      };
+      tx.onerror = () => {
+        db.close();
+        resolve(false);
+      };
+    });
+  } catch {
+    // ignore
+  }
+
   return new Promise((resolve) => {
     const req = indexedDB.deleteDatabase(DB_NAME);
     req.onsuccess = () => resolve(true);

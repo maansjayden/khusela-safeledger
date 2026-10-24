@@ -46,8 +46,12 @@ if os.path.isdir(frontend_dist):
 
     @app.get("/{full_path:path}")
     async def serve_pwa(full_path: str):
-        candidate = os.path.join(frontend_dist, full_path)
-        if full_path and os.path.isfile(candidate):
+        candidate = os.path.abspath(os.path.join(frontend_dist, full_path))
+        if (
+            full_path
+            and candidate.startswith(frontend_dist + os.sep)
+            and os.path.isfile(candidate)
+        ):
             return FileResponse(candidate)
         return FileResponse(os.path.join(frontend_dist, "index.html"))
 else:

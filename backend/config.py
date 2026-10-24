@@ -1,8 +1,9 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 
 class Settings(BaseModel):
@@ -14,7 +15,8 @@ class Settings(BaseModel):
     TWILIO_API_KEY_SID: str = os.getenv("TWILIO_API_KEY_SID", "")
     TWILIO_API_KEY_SECRET: str = os.getenv("TWILIO_API_KEY_SECRET", "")
     TWILIO_FROM_NUMBER: str = os.getenv("TWILIO_FROM_NUMBER", "")
-    DEMO_WHITELIST_NUMBER: str = os.getenv("DEMO_WHITELIST_NUMBER", "+27737220854")
+    TRUSTED_CONTACT_NUMBER: str = os.getenv("TRUSTED_CONTACT_NUMBER", "")
+    DEMO_WHITELIST_NUMBER: str = os.getenv("DEMO_WHITELIST_NUMBER", "")
     BASE_URL: str = os.getenv("BASE_URL", "http://localhost:8000")
 
 

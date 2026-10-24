@@ -1,11 +1,11 @@
 import io
 import json
+import logging
 import os
-import tempfile
 from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
@@ -15,19 +15,20 @@ from reportlab.pdfgen import canvas
 
 from config import settings
 
+logger = logging.getLogger("khusela.legal")
 router = APIRouter()
 
 
 class RawSurvivorNotesRequest(BaseModel):
-    survivor_name: Optional[str] = "Nomsa Dlamini"
-    respondent_name: Optional[str] = "Sipho Dlamini"
+    survivor_name: Optional[str] = ""
+    respondent_name: Optional[str] = ""
     raw_notes: str
     evidence_hashes: Optional[List[str]] = Field(default_factory=list)
 
 
 class Form06StructuredData(BaseModel):
-    applicant_full_name: str = "Nomsa Dlamini"
-    respondent_full_name: str = "Sipho Dlamini"
+    applicant_full_name: str = ""
+    respondent_full_name: str = ""
     incident_date_time: str
     incident_location: str
     nature_of_domestic_violence: List[str]
@@ -68,7 +69,7 @@ Return strictly valid JSON matching this schema:
 }}
 """
             response = client.models.generate_content(
-                model="gemini-3-flash-preview",
+                model="gemini-2.5-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
@@ -79,40 +80,21 @@ Return strictly valid JSON matching this schema:
             if not parsed.get("evidence_sha256_manifest") and payload.evidence_hashes:
                 parsed["evidence_sha256_manifest"] = payload.evidence_hashes
             return Form06StructuredData(**parsed)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(f"Gemini legal structuring fallback engaged: {exc}")
 
-    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    # AI unavailable: fill only what the survivor wrote. Nothing is inferred or invented.
     return Form06StructuredData(
-        applicant_full_name=payload.survivor_name or "Nomsa Dlamini",
-        respondent_full_name=payload.respondent_name or "Sipho Dlamini",
-        incident_date_time=now_str,
-        incident_location="Primary Shared Residence (Soweto, Johannesburg)",
-        nature_of_domestic_violence=[
-            "Physical Abuse",
-            "Intimidation",
-            "Emotional, Verbal and Psychological Abuse",
-            "Economic Abuse",
-            "Controlling Behaviour",
-        ],
-        chronological_affidavit_narrative=(
-            f"I, the undersigned Applicant ({payload.survivor_name}), state under oath that the Respondent "
-            f"({payload.respondent_name}) committed acts of domestic violence as defined in Section 1 of the "
-            f"Domestic Violence Act 116 of 1998: {payload.raw_notes.strip()} "
-            f"Contemporaneous digital exhibits have been cryptographically hashed and sealed."
-        ),
-        weapons_or_threats_involved="Verbal threats of physical harm, unlawful confinement, and physical intimidation.",
-        urgency_grounds_section_4=(
-            "The Applicant resides in the shared residence and faces imminent risk of escalated physical harm "
-            "if an Interim Protection Order is not granted urgently ex parte in terms of Section 5(2)."
-        ),
-        requested_protection_terms=[
-            "Prohibit the Respondent from committing any act of domestic violence",
-            "Prohibit the Respondent from entering the shared residence",
-            "Direct SAPS to seize any dangerous weapons in possession of the Respondent",
-        ],
-        evidence_sha256_manifest=payload.evidence_hashes
-        or ["e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"],
+        applicant_full_name=payload.survivor_name or "",
+        respondent_full_name=payload.respondent_name or "",
+        incident_date_time="To be completed by applicant",
+        incident_location="To be completed by applicant",
+        nature_of_domestic_violence=[],
+        chronological_affidavit_narrative=payload.raw_notes.strip(),
+        weapons_or_threats_involved="To be completed by applicant",
+        urgency_grounds_section_4="To be completed by applicant",
+        requested_protection_terms=[],
+        evidence_sha256_manifest=payload.evidence_hashes or [],
     )
 
 
@@ -274,14 +256,29 @@ async def generate_form06_pdf(data: Form06StructuredData):
     c.drawString(45, y, "SECTION 4 FULL AFFIDAVIT CONTINUATION:")
     c.setFont("Helvetica", 9)
     for line in _wrap_text(data.chronological_affidavit_narrative, 88):
+        if y < 65:
+            c.showPage()
+            c.setFont("Helvetica", 9)
+            y = height - 55
         y -= 13
         c.drawString(45, y, line)
 
     y -= 25
+    if y < 90:
+        c.showPage()
+        y = height - 55
     c.setFont("Helvetica-Bold", 9.5)
     c.drawString(45, y, "TAMPER-EVIDENT SERVER-SYNCED EXHIBIT HASHES (SHA-256):")
     c.setFont("Courier", 8.5)
-    for idx, digest in enumerate(data.evidence_sha256_manifest, start=1):
+    manifest = data.evidence_sha256_manifest
+    if not manifest:
+        y -= 13
+        c.drawString(45, y, "No exhibits attached.")
+    for idx, digest in enumerate(manifest, start=1):
+        if y < 65:
+            c.showPage()
+            c.setFont("Courier", 8.5)
+            y = height - 55
         y -= 13
         c.drawString(45, y, f"Exhibit #{idx:02d} : {digest}")
 
@@ -307,17 +304,21 @@ async def generate_form06_pdf(data: Form06StructuredData):
                 if i in page_overlays:
                     page.merge_page(page_overlays[i])
                 writer.add_page(page)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(f"Template overlay fallback: {exc}")
 
-    writer.add_page(annexure_reader.pages[0])
+    for annex_page in annexure_reader.pages:
+        writer.add_page(annex_page)
 
-    tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf", prefix="Form06_J480_")
-    with open(tmp_file.name, "wb") as f_out:
-        writer.write(f_out)
+    pdf_out = io.BytesIO()
+    writer.write(pdf_out)
+    pdf_bytes = pdf_out.getvalue()
 
-    return FileResponse(
-        path=tmp_file.name,
+    return Response(
+        content=pdf_bytes,
         media_type="application/pdf",
-        filename="Form06_J480_Protection_Order.pdf",
+        headers={
+            "Content-Disposition": 'attachment; filename="Form06_J480_Protection_Order.pdf"',
+            "Cache-Control": "no-store",
+        },
     )

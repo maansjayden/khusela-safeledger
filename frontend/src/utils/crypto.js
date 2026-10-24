@@ -25,6 +25,12 @@ export async function computeSHA256(input) {
   return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+function requirePin(pin) {
+  if (typeof pin !== 'string' || pin.length === 0) {
+    throw new Error('Vault PIN required: encryption key is derived from the PIN entered by the user.');
+  }
+}
+
 export async function deriveKeyFromPin(pin, saltUint8) {
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
@@ -66,7 +72,8 @@ function base64ToUint8Array(base64) {
   return bytes;
 }
 
-export async function encryptPayload(payloadObj, pin = '2580') {
+export async function encryptPayload(payloadObj, pin) {
+  requirePin(pin);
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await deriveKeyFromPin(pin, salt);
@@ -86,7 +93,8 @@ export async function encryptPayload(payloadObj, pin = '2580') {
   };
 }
 
-export async function decryptPayload(encryptedEnvelope, pin = '2580') {
+export async function decryptPayload(encryptedEnvelope, pin) {
+  requirePin(pin);
   const salt = base64ToUint8Array(encryptedEnvelope.salt);
   const iv = base64ToUint8Array(encryptedEnvelope.iv);
   const ciphertext = base64ToUint8Array(encryptedEnvelope.ciphertext);
