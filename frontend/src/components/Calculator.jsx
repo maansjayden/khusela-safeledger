@@ -1,181 +1,269 @@
-import React, { useState } from 'react';
-import { Calculator as CalcIcon, ShoppingBasket, ShieldCheck, Delete, PlusCircle, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
 import { computeSHA256 } from '../utils/crypto.js';
 
-// Salted SHA-256 digests so no plaintext PINs ever appear in source or bundle
 const PIN_SALT = 'khusela_device_salt_v2::';
 const DURESS_PIN_HASH = '695cf1df13fae5b9424bc39f1bcb35ee8a378c7b727632c0dddf11436dce6aa7';
 const VAULT_PIN_HASH = '24867387d38145e995a48b7d875fda8a98433a266bb8429f38501d1f9ffaa375';
 
-const PRESET_GROCERIES = [
-  { id: 'bread', name: 'Loaf of Brown Bread (700g)', price: 18.50, vatZeroRated: true },
-  { id: 'maize', name: 'Super Maize Meal (5kg)', price: 65.00, vatZeroRated: true },
-  { id: 'oil', name: 'Sunflower Cooking Oil (2L)', price: 42.00, vatZeroRated: false },
+const DEFAULT_ITEMS = [
+  { id: 1, label: 'Brown Bread 700g', price: 18.50, vatExempt: true },
+  { id: 2, label: 'Maize Meal 5kg', price: 65.00, vatExempt: true },
+  { id: 3, label: 'Cooking Oil 2L', price: 42.00, vatExempt: false },
+  { id: 4, label: 'Full Cream Milk 2L', price: 34.99, vatExempt: true },
 ];
 
-export default function Calculator({ onSecretPinTrigger, duressDispatched }) {
+export default function Calculator({ onSecretPinTrigger }) {
   const [display, setDisplay] = useState('0');
-  const [expression, setExpression] = useState('');
-  const [basketTotal, setBasketTotal] = useState(125.50); // 18.50 + 65.00 + 42.00
+  const [pendingOp, setPendingOp] = useState(null);
+  const [storedValue, setStoredValue] = useState(null);
+  const [resetNext, setResetNext] = useState(false);
+  const [cart, setCart] = useState([]);
+  const [tab, setTab] = useState('calc'); // 'calc' | 'list'
 
-  const handleDigit = (digit) => {
-    setDisplay((prev) => (prev === '0' || prev === 'Error' ? String(digit) : prev + String(digit)));
+  const inputDigit = (digit) => {
+    if (resetNext) {
+      setDisplay(String(digit));
+      setResetNext(false);
+    } else {
+      setDisplay((prev) => (prev === '0' ? String(digit) : prev.length < 10 ? prev + digit : prev));
+    }
   };
 
-  const handleOperator = (op) => {
-    setExpression(`${display} ${op} `);
-    setDisplay('0');
+  const inputDecimal = () => {
+    if (resetNext) {
+      setDisplay('0.');
+      setResetNext(false);
+      return;
+    }
+    if (!display.includes('.')) {
+      setDisplay((prev) => prev + '.');
+    }
   };
 
-  const handleClear = () => {
+  const clearAll = () => {
     setDisplay('0');
-    setExpression('');
+    setPendingOp(null);
+    setStoredValue(null);
+    setResetNext(false);
   };
 
   const handleBackspace = () => {
+    if (resetNext) return;
     setDisplay((prev) => (prev.length > 1 ? prev.slice(0, -1) : '0'));
   };
 
-  const handleEquals = async () => {
-    const trimmed = display.trim();
+  const calculate = (a, b, op) => {
+    switch (op) {
+      case '+':
+        return a + b;
+      case '-':
+        return a - b;
+      case '×':
+        return a * b;
+      case '÷':
+        return b !== 0 ? a / b : 0;
+      default:
+        return b;
+    }
+  };
 
-    if (expression === '' && /^\d{4}$/.test(trimmed)) {
-      const candidateHash = await computeSHA256(`${PIN_SALT}${trimmed}`);
-      if (candidateHash === DURESS_PIN_HASH) {
+  const handleOperator = (nextOp) => {
+    const current = parseFloat(display);
+    if (storedValue === null) {
+      setStoredValue(current);
+    } else if (pendingOp && !resetNext) {
+      const result = calculate(storedValue, current, pendingOp);
+      setStoredValue(result);
+      setDisplay(String(Number(result.toFixed(2))));
+    }
+    setPendingOp(nextOp);
+    setResetNext(true);
+  };
+
+  const handleEquals = async () => {
+    const raw = display.trim();
+
+    // Check 4-digit PIN only when no math operation is active
+    if (pendingOp === null && storedValue === null && /^\d{4}$/.test(raw)) {
+      const digest = await computeSHA256(`${PIN_SALT}${raw}`);
+      if (digest === DURESS_PIN_HASH) {
         onSecretPinTrigger('DURESS_9999');
-        setDisplay('125.50');
-        setExpression('Basket Total (incl. 15% VAT)');
+        setDisplay('160.49');
+        setResetNext(true);
         return;
       }
-      if (candidateHash === VAULT_PIN_HASH) {
-        onSecretPinTrigger('VAULT_2580');
+      if (digest === VAULT_PIN_HASH) {
         setDisplay('0');
-        setExpression('');
+        onSecretPinTrigger('VAULT_2580');
         return;
       }
       onSecretPinTrigger('FAILED_PIN_ATTEMPT');
     }
 
-    try {
-      const fullExpr = `${expression}${display}`.replace(/×/g, '*').replace(/÷/g, '/');
-      // Safe arithmetic evaluation for digits and basic operators
-      if (/^[0-9+\-*/. ()]+$/.test(fullExpr)) {
-        // eslint-disable-next-line no-new-func
-        const result = Function(`"use strict"; return (${fullExpr})`)();
-        const formatted = Number.isFinite(result) ? Number(result.toFixed(2)).toString() : '0';
-        setDisplay(formatted);
-        setExpression('');
-      }
-    } catch {
-      setDisplay('0');
-      setExpression('');
+    if (pendingOp !== null && storedValue !== null) {
+      const current = parseFloat(display);
+      const result = calculate(storedValue, current, pendingOp);
+      setDisplay(String(Number(result.toFixed(2))));
+      setStoredValue(null);
+      setPendingOp(null);
+      setResetNext(true);
     }
   };
 
-  const addGroceryItem = (item) => {
+  // Support keyboard typing
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key >= '0' && e.key <= '9') inputDigit(e.key);
+      else if (e.key === '.') inputDecimal();
+      else if (e.key === 'Backspace') handleBackspace();
+      else if (e.key === 'Escape') clearAll();
+      else if (e.key === '+') handleOperator('+');
+      else if (e.key === '-') handleOperator('-');
+      else if (e.key === '*') handleOperator('×');
+      else if (e.key === '/') {
+        e.preventDefault();
+        handleOperator('÷');
+      } else if (e.key === 'Enter' || e.key === '=') {
+        e.preventDefault();
+        handleEquals();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  });
+
+  const addItemToCalc = (item) => {
     const current = parseFloat(display) || 0;
-    const updated = Number((current + item.price).toFixed(2));
-    setDisplay(updated.toString());
-    setBasketTotal((prev) => Number((prev + item.price).toFixed(2)));
+    const next = Number((current + item.price).toFixed(2));
+    setDisplay(String(next));
+    setCart((prev) => [...prev, item]);
+    setResetNext(true);
   };
 
-  const vatAmount = Number((basketTotal * (15 / 115)).toFixed(2));
+  const vatPortion = Number((parseFloat(display || '0') * (15 / 115)).toFixed(2));
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col items-center justify-start py-6 px-4">
-      <div className="w-full max-w-md bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden">
-        {/* Top Header */}
-        <div className="bg-teal-600 text-white px-5 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-teal-700/80 rounded-xl">
-              <CalcIcon className="w-5 h-5 text-amber-300" />
-            </div>
-            <div>
-              <h1 className="font-bold text-base tracking-tight leading-none">Mzansi Smart-Budget</h1>
-              <p className="text-xs text-teal-100 mt-1">Household Grocery &amp; 15% VAT Planner</p>
-            </div>
+    <div className="min-h-screen bg-[#f4f4f0] text-neutral-900 flex flex-col justify-between max-w-md mx-auto border-x border-neutral-300 select-none">
+      {/* Utilitarian Header */}
+      <div>
+        <header className="px-4 py-3 bg-[#1c1c1a] text-neutral-100 flex items-center justify-between border-b border-neutral-800">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs uppercase tracking-widest text-neutral-400">
+              ZAR // BASKET
+            </span>
           </div>
-
-          <span
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-teal-800/70 text-teal-50 border border-teal-400/30"
-            title={duressDispatched ? 'Sync Active' : 'Offline Ready'}
-          >
-            <span
-              className={`w-2 h-2 rounded-full ${
-                duressDispatched ? 'bg-amber-300 animate-pulse' : 'bg-emerald-400'
+          <div className="flex bg-neutral-800 p-0.5 rounded text-xs font-medium">
+            <button
+              type="button"
+              onClick={() => setTab('calc')}
+              className={`px-2.5 py-1 rounded ${
+                tab === 'calc' ? 'bg-neutral-100 text-neutral-900' : 'text-neutral-400'
               }`}
-            />
-            Offline Ready
-          </span>
-        </div>
-
-        {/* SA Staples Quick Basket */}
-        <div className="p-4 bg-slate-50 border-b border-slate-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-              <ShoppingBasket className="w-3.5 h-3.5 text-teal-600" />
-              Essential Basket Staples (ZAR)
-            </span>
-            <span className="text-xs text-slate-500">
-              Est. 15% VAT: <strong className="text-slate-700">R{vatAmount.toFixed(2)}</strong>
-            </span>
+            >
+              Keypad
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab('list')}
+              className={`px-2.5 py-1 rounded ${
+                tab === 'list' ? 'bg-neutral-100 text-neutral-900' : 'text-neutral-400'
+              }`}
+            >
+              Staples ({cart.length})
+            </button>
           </div>
+        </header>
 
-          <div className="space-y-1.5">
-            {PRESET_GROCERIES.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => addGroceryItem(item)}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-white hover:bg-teal-50/60 border border-slate-200/80 transition text-left group"
-              >
-                <div className="flex items-center gap-2">
-                  <PlusCircle className="w-4 h-4 text-teal-600 group-hover:scale-110 transition" />
-                  <span className="text-xs font-medium text-slate-700">{item.name}</span>
-                  {item.vatZeroRated && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-medium">
-                      Zero-VAT
-                    </span>
-                  )}
-                </div>
-                <span className="text-xs font-bold text-slate-900">R{item.price.toFixed(2)}</span>
-              </button>
-            ))}
+        {/* LCD Readout */}
+        <div className="bg-[#e4e6dd] px-5 py-6 border-b border-neutral-300 shadow-inner">
+          <div className="flex items-center justify-between text-[11px] font-mono text-neutral-600 mb-1">
+            <span>15% VAT INCL: R{Number.isFinite(vatPortion) ? vatPortion.toFixed(2) : '0.00'}</span>
+            <span>{pendingOp ? `${storedValue} ${pendingOp}` : 'READY'}</span>
           </div>
-        </div>
-
-        {/* Calculator LCD Display */}
-        <div className="px-5 py-4 bg-slate-900 text-right">
-          <div className="h-5 text-xs text-slate-400 font-mono truncate">
-            {expression || 'ZAR (R) Calculator'}
-          </div>
-          <div className="text-3xl font-bold text-white font-mono tracking-tight mt-0.5 truncate">
-            <span className="text-teal-400 mr-1 text-xl">R</span>
+          <div className="text-right font-mono text-4xl font-semibold tracking-tight text-neutral-900 truncate">
+            <span className="text-xl text-neutral-500 mr-1">R</span>
             {display}
           </div>
         </div>
 
-        {/* Keypad */}
-        <div className="p-4 bg-white grid grid-cols-4 gap-2.5">
+        {/* Quick Price Strip */}
+        <div className="px-3 py-2.5 bg-neutral-200/70 border-b border-neutral-300 overflow-x-auto">
+          <div className="flex gap-1.5">
+            {DEFAULT_ITEMS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => addItemToCalc(item)}
+                className="shrink-0 px-2.5 py-1.5 bg-white border border-neutral-300 rounded text-left active:bg-neutral-100"
+              >
+                <div className="text-[11px] font-medium text-neutral-800 leading-tight">
+                  {item.label}
+                </div>
+                <div className="text-[11px] font-mono font-semibold text-neutral-600 mt-0.5">
+                  +R{item.price.toFixed(2)}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {tab === 'list' ? (
+        <div className="flex-1 p-4 overflow-y-auto space-y-2 bg-white">
+          <div className="flex items-center justify-between border-b border-neutral-200 pb-2">
+            <span className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
+              Added Items
+            </span>
+            {cart.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCart([]);
+                  clearAll();
+                }}
+                className="text-xs text-red-700 font-medium"
+              >
+                Clear List
+              </button>
+            )}
+          </div>
+          {cart.length === 0 ? (
+            <p className="text-xs text-neutral-500 py-8 text-center">
+              Tap any staple above to add it to your running total.
+            </p>
+          ) : (
+            cart.map((c, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between py-2 border-b border-neutral-100 text-sm"
+              >
+                <span className="text-neutral-800">{c.label}</span>
+                <span className="font-mono font-medium">R{c.price.toFixed(2)}</span>
+              </div>
+            ))
+          )}
+        </div>
+      ) : (
+        /* Tactile Hardware-Style Keypad */
+        <div className="flex-1 p-3 grid grid-cols-4 gap-2 bg-[#f4f4f0]">
           <button
             type="button"
-            onClick={handleClear}
-            className="col-span-2 py-3.5 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-sm active:scale-95 transition"
+            onClick={clearAll}
+            className="col-span-2 bg-neutral-300 active:bg-neutral-400 text-neutral-900 font-semibold text-base rounded border-b-2 border-neutral-400"
           >
-            AC / Clear
+            C
           </button>
           <button
             type="button"
             onClick={handleBackspace}
-            className="py-3.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold flex items-center justify-center active:scale-95 transition"
-            aria-label="Backspace"
+            className="bg-neutral-300 active:bg-neutral-400 text-neutral-900 font-mono font-semibold text-base rounded border-b-2 border-neutral-400"
           >
-            <Delete className="w-5 h-5" />
+            DEL
           </button>
           <button
             type="button"
             onClick={() => handleOperator('÷')}
-            className="py-3.5 rounded-2xl bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold text-lg active:scale-95 transition"
+            className="bg-neutral-800 active:bg-neutral-700 text-white font-mono text-xl rounded border-b-2 border-neutral-950"
           >
             ÷
           </button>
@@ -184,8 +272,8 @@ export default function Calculator({ onSecretPinTrigger, duressDispatched }) {
             <button
               key={n}
               type="button"
-              onClick={() => handleDigit(n)}
-              className="py-3.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-900 font-semibold text-lg active:scale-95 transition"
+              onClick={() => inputDigit(n)}
+              className="bg-white active:bg-neutral-200 text-neutral-900 font-mono text-xl font-medium rounded border border-neutral-300 border-b-2"
             >
               {n}
             </button>
@@ -193,7 +281,7 @@ export default function Calculator({ onSecretPinTrigger, duressDispatched }) {
           <button
             type="button"
             onClick={() => handleOperator('×')}
-            className="py-3.5 rounded-2xl bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold text-lg active:scale-95 transition"
+            className="bg-neutral-800 active:bg-neutral-700 text-white font-mono text-xl rounded border-b-2 border-neutral-950"
           >
             ×
           </button>
@@ -202,8 +290,8 @@ export default function Calculator({ onSecretPinTrigger, duressDispatched }) {
             <button
               key={n}
               type="button"
-              onClick={() => handleDigit(n)}
-              className="py-3.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-900 font-semibold text-lg active:scale-95 transition"
+              onClick={() => inputDigit(n)}
+              className="bg-white active:bg-neutral-200 text-neutral-900 font-mono text-xl font-medium rounded border border-neutral-300 border-b-2"
             >
               {n}
             </button>
@@ -211,7 +299,7 @@ export default function Calculator({ onSecretPinTrigger, duressDispatched }) {
           <button
             type="button"
             onClick={() => handleOperator('-')}
-            className="py-3.5 rounded-2xl bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold text-lg active:scale-95 transition"
+            className="bg-neutral-800 active:bg-neutral-700 text-white font-mono text-xl rounded border-b-2 border-neutral-950"
           >
             −
           </button>
@@ -220,8 +308,8 @@ export default function Calculator({ onSecretPinTrigger, duressDispatched }) {
             <button
               key={n}
               type="button"
-              onClick={() => handleDigit(n)}
-              className="py-3.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-900 font-semibold text-lg active:scale-95 transition"
+              onClick={() => inputDigit(n)}
+              className="bg-white active:bg-neutral-200 text-neutral-900 font-mono text-xl font-medium rounded border border-neutral-300 border-b-2"
             >
               {n}
             </button>
@@ -229,43 +317,34 @@ export default function Calculator({ onSecretPinTrigger, duressDispatched }) {
           <button
             type="button"
             onClick={() => handleOperator('+')}
-            className="py-3.5 rounded-2xl bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold text-lg active:scale-95 transition"
+            className="bg-neutral-800 active:bg-neutral-700 text-white font-mono text-xl rounded border-b-2 border-neutral-950"
           >
             +
           </button>
 
           <button
             type="button"
-            onClick={() => handleDigit(0)}
-            className="col-span-2 py-3.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-900 font-semibold text-lg active:scale-95 transition"
+            onClick={() => inputDigit(0)}
+            className="col-span-2 bg-white active:bg-neutral-200 text-neutral-900 font-mono text-xl font-medium rounded border border-neutral-300 border-b-2"
           >
             0
           </button>
           <button
             type="button"
-            onClick={() => handleDigit('.')}
-            className="py-3.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold text-lg active:scale-95 transition"
+            onClick={inputDecimal}
+            className="bg-white active:bg-neutral-200 text-neutral-900 font-mono text-xl font-bold rounded border border-neutral-300 border-b-2"
           >
             .
           </button>
           <button
             type="button"
             onClick={handleEquals}
-            className="py-3.5 rounded-2xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold text-lg shadow-sm active:scale-95 transition"
+            className="bg-[#d9532f] active:bg-[#b84222] text-white font-mono text-2xl font-bold rounded border-b-2 border-[#8f3016]"
           >
             =
           </button>
         </div>
-
-        {/* Subtle Judge Hint Footer */}
-        <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-[11px] text-slate-400">
-          <span className="flex items-center gap-1">
-            <ShieldCheck className="w-3.5 h-3.5 text-teal-600" />
-            SARS 15% VAT Compliant
-          </span>
-          <span>v2.6 Offline Cache</span>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

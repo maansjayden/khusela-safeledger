@@ -19,15 +19,15 @@ router = APIRouter()
 
 
 class RawSurvivorNotesRequest(BaseModel):
-    survivor_name: Optional[str] = "Applicant (Confidential)"
-    respondent_name: Optional[str] = "Respondent"
+    survivor_name: Optional[str] = "Nomsa Dlamini"
+    respondent_name: Optional[str] = "Sipho Dlamini"
     raw_notes: str
     evidence_hashes: Optional[List[str]] = Field(default_factory=list)
 
 
 class Form06StructuredData(BaseModel):
-    applicant_full_name: str = "Applicant"
-    respondent_full_name: str = "Respondent"
+    applicant_full_name: str = "Nomsa Dlamini"
+    respondent_full_name: str = "Sipho Dlamini"
     incident_date_time: str
     incident_location: str
     nature_of_domestic_violence: List[str]
@@ -40,18 +40,13 @@ class Form06StructuredData(BaseModel):
 
 @router.post("/structure", response_model=Form06StructuredData)
 async def structure_survivor_notes(payload: RawSurvivorNotesRequest):
-    """
-    Uses Gemini 2.5 Flash with response_mime_type="application/json" to structure raw survivor
-    notes into South African Domestic Violence Act Form 06 (J480) Section 4 legal fields.
-    Falls back to deterministic legal structuring if GEMINI_API_KEY is not set.
-    """
     if settings.GEMINI_API_KEY:
         try:
             client = genai.Client(api_key=settings.GEMINI_API_KEY)
             prompt = f"""
-You are a South African Domestic Violence Act (Act 116 of 1998, as amended) legal clerk assistant.
+You are a South African Domestic Violence Act (Act 116 of 1998, as amended by Act 14 of 2021) legal clerk assistant.
 Convert the following raw survivor notes into formal, first-person legal affidavit fields suitable for
-Form 06 (J480) Application for a Protection Order (Section 4).
+Form 06 (J480) Application for a Protection Order (Section 4). Do not invent facts or dates not stated.
 
 Applicant Name: {payload.survivor_name}
 Respondent Name: {payload.respondent_name}
@@ -64,7 +59,7 @@ Return strictly valid JSON matching this schema:
   "respondent_full_name": "string",
   "incident_date_time": "string",
   "incident_location": "string",
-  "nature_of_domestic_violence": ["Physical Abuse", "Emotional, Verbal and Psychological Abuse", "Intimidation", "Controlling Behaviour"],
+  "nature_of_domestic_violence": ["Physical Abuse", "Emotional, Verbal and Psychological Abuse", "Economic Abuse", "Intimidation", "Controlling Behaviour"],
   "chronological_affidavit_narrative": "Formal first-person legal paragraph for Form 06 Section 4...",
   "weapons_or_threats_involved": "string",
   "urgency_grounds_section_4": "Why an interim protection order is urgently required to prevent undue hardship or imminent harm...",
@@ -77,6 +72,7 @@ Return strictly valid JSON matching this schema:
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
+                    temperature=0.0,
                 ),
             )
             parsed = json.loads(response.text)
@@ -86,38 +82,37 @@ Return strictly valid JSON matching this schema:
         except Exception:
             pass
 
-    # Deterministic fallback when offline or API key not provided
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     return Form06StructuredData(
-        applicant_full_name=payload.survivor_name or "Applicant",
-        respondent_full_name=payload.respondent_name or "Respondent",
+        applicant_full_name=payload.survivor_name or "Nomsa Dlamini",
+        respondent_full_name=payload.respondent_name or "Sipho Dlamini",
         incident_date_time=now_str,
-        incident_location="Primary Residence (Coordinates Sealed in Khusela Forensic Ledger)",
+        incident_location="Primary Shared Residence (Soweto, Johannesburg)",
         nature_of_domestic_violence=[
-            "Physical Abuse / Assault",
-            "Intimidation and Threats of Imminent Harm",
+            "Physical Abuse",
+            "Intimidation",
             "Emotional, Verbal and Psychological Abuse",
-            "Economic / Financial Coercion",
+            "Economic Abuse",
+            "Controlling Behaviour",
         ],
         chronological_affidavit_narrative=(
-            f"I, the undersigned Applicant ({payload.survivor_name}), hereby state under oath that the Respondent "
+            f"I, the undersigned Applicant ({payload.survivor_name}), state under oath that the Respondent "
             f"({payload.respondent_name}) committed acts of domestic violence as defined in Section 1 of the "
-            f"Domestic Violence Act 116 of 1998. Specifically: {payload.raw_notes.strip()} "
-            f"Contemporaneous digital evidence has been cryptographically hashed and sealed in the Khusela Vault."
+            f"Domestic Violence Act 116 of 1998: {payload.raw_notes.strip()} "
+            f"Contemporaneous digital exhibits have been cryptographically hashed and sealed."
         ),
-        weapons_or_threats_involved="Direct verbal threats of severe bodily harm and escalating physical intimidation.",
+        weapons_or_threats_involved="Verbal threats of physical harm, unlawful confinement, and physical intimidation.",
         urgency_grounds_section_4=(
-            "The Applicant faces imminent risk of severe physical harm if an Interim Protection Order is not granted "
-            "immediately ex parte in terms of Section 5(2) of the Domestic Violence Act."
+            "The Applicant resides in the shared residence and faces imminent risk of escalated physical harm "
+            "if an Interim Protection Order is not granted urgently ex parte in terms of Section 5(2)."
         ),
         requested_protection_terms=[
             "Prohibit the Respondent from committing any act of domestic violence",
-            "Prohibit the Respondent from entering the Applicant's residence or workplace",
+            "Prohibit the Respondent from entering the shared residence",
             "Direct SAPS to seize any dangerous weapons in possession of the Respondent",
         ],
-        evidence_sha256_manifest=payload.evidence_hashes or [
-            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        ],
+        evidence_sha256_manifest=payload.evidence_hashes
+        or ["e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"],
     )
 
 
@@ -136,97 +131,166 @@ def _wrap_text(text: str, max_chars: int = 88) -> List[str]:
     return lines
 
 
+def _split_name(full_name: str):
+    cleaned = full_name.replace("(Applicant)", "").replace("(Respondent)", "").strip()
+    parts = cleaned.split()
+    if len(parts) >= 2:
+        return parts[-1], " ".join(parts[:-1])
+    return cleaned, cleaned
+
+
+def _build_page_overlays(data: Form06StructuredData) -> dict:
+    """
+    Creates transparent ReportLab coordinate overlays for Pages 1, 2, 3, 5, and 6
+    of the official Department of Justice Form 06 (J480E) PDF (594.96 x 842.04 pt).
+    """
+    overlays = {}
+    app_surname, app_names = _split_name(data.applicant_full_name)
+    resp_surname, resp_names = _split_name(data.respondent_full_name)
+
+    # Page 1 (index 0): Section 1 Complainant Particulars & Section 3 Relationship
+    buf0 = io.BytesIO()
+    c0 = canvas.Canvas(buf0, pagesize=A4)
+    c0.setFont("Helvetica-Bold", 10)
+    c0.drawString(195, 582.5, app_surname)
+    c0.drawString(195, 564.4, app_names)
+    c0.drawString(138, 196.0, "X")  # Current co-resident
+    c0.drawString(153, 106.8, "X")  # Partner
+    c0.save()
+    buf0.seek(0)
+    overlays[0] = PdfReader(buf0).pages[0]
+
+    # Page 2 (index 1): Section 3 Respondent Particulars
+    buf1 = io.BytesIO()
+    c1 = canvas.Canvas(buf1, pagesize=A4)
+    c1.setFont("Helvetica-Bold", 10)
+    c1.drawString(225, 489.4, resp_surname)
+    c1.drawString(225, 463.1, resp_names)
+    c1.setFont("Helvetica", 9.5)
+    c1.drawString(225, 410.6, data.incident_location[:55])
+    c1.save()
+    buf1.seek(0)
+    overlays[1] = PdfReader(buf1).pages[0]
+
+    # Page 3 (index 2): Section 4 Information Regarding Acts of Domestic Violence
+    buf2 = io.BytesIO()
+    c2 = canvas.Canvas(buf2, pagesize=A4)
+    c2.setFont("Helvetica", 9.5)
+    y = 718
+    for line in _wrap_text(data.chronological_affidavit_narrative, 88)[:18]:
+        c2.drawString(40, y, line)
+        y -= 14
+
+    c2.setFont("Helvetica-Bold", 9)
+    c2.drawString(195, 329.2, data.incident_date_time[:45])
+    c2.drawString(195, 305.0, data.incident_location[:55])
+
+    c2.setFont("Helvetica", 8.5)
+    y_rec = 246.7
+    for line in _wrap_text(data.chronological_affidavit_narrative, 58)[:6]:
+        c2.drawString(195, y_rec, line)
+        y_rec -= 12
+
+    y_inj = 142.6
+    for line in _wrap_text(data.weapons_or_threats_involved, 58)[:3]:
+        c2.drawString(195, y_inj, line)
+        y_inj -= 12
+    c2.save()
+    buf2.seek(0)
+    overlays[2] = PdfReader(buf2).pages[0]
+
+    # Page 5 (index 4): Section 5 Urgency of Application
+    buf4 = io.BytesIO()
+    c4 = canvas.Canvas(buf4, pagesize=A4)
+    c4.setFont("Helvetica", 9.5)
+    y_urg = 695
+    for line in _wrap_text(data.urgency_grounds_section_4, 88)[:8]:
+        c4.drawString(40, y_urg, line)
+        y_urg -= 14
+    c4.drawString(225, 370.0, "YES (Shared Residence)")
+    c4.drawString(185, 313.9, data.weapons_or_threats_involved[:65])
+    c4.drawString(185, 150.5, "YES — Applicant fears imminent physical harm.")
+    c4.save()
+    buf4.seek(0)
+    overlays[4] = PdfReader(buf4).pages[0]
+
+    # Page 6 (index 5): Section 6 Terms of Protection Order Checkboxes
+    buf5 = io.BytesIO()
+    c5 = canvas.Canvas(buf5, pagesize=A4)
+    c5.setFont("Helvetica-Bold", 10)
+    joined_tags = " ".join(data.nature_of_domestic_violence).lower()
+    if "physical" in joined_tags:
+        c5.drawString(53, 601.4, "X")
+    if "emotional" in joined_tags or "verbal" in joined_tags or "psychological" in joined_tags:
+        c5.drawString(53, 556.8, "X")
+    if "economic" in joined_tags or "financial" in joined_tags:
+        c5.drawString(53, 534.5, "X")
+    if "intimidation" in joined_tags or "threat" in joined_tags:
+        c5.drawString(53, 512.2, "X")
+    if "control" in joined_tags or "confinement" in joined_tags:
+        c5.drawString(312, 512.2, "X")
+    c5.setFont("Helvetica", 9)
+    c5.drawString(280, 333.1, data.incident_location[:45])
+    c5.save()
+    buf5.seek(0)
+    overlays[5] = PdfReader(buf5).pages[0]
+
+    return overlays
+
+
 @router.post("/generate-form06")
 async def generate_form06_pdf(data: Form06StructuredData):
-    """
-    Uses pypdf and ReportLab to overlay structured survivor testimony onto
-    backend/templates/dv-Form06-J480.pdf (and appends a Forensic Section 4 Schedule),
-    or generates a complete standalone Form 06 PDF if the template is absent.
-    Returns a FileResponse.
-    """
     template_path = os.path.join(
         os.path.dirname(os.path.dirname(__file__)),
         "templates",
         "dv-Form06-J480.pdf",
     )
 
+    # Build Final ECTA Section 15 Cryptographic Annexure Page
     overlay_buffer = io.BytesIO()
     c = canvas.Canvas(overlay_buffer, pagesize=A4)
     width, height = A4
 
-    # Page 1: Official Section 4 Schedule & Cryptographic Evidence Annexure
-    c.setFont("Helvetica-Bold", 13)
-    c.drawString(45, height - 50, "DEPARTMENT OF JUSTICE AND CONSTITUTIONAL DEVELOPMENT (RSA)")
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(45, height - 68, "FORM 06 [J480] - SECTION 4 APPLICATION FOR PROTECTION ORDER (ANNEXURE)")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(45, height - 50, "ANNEXURE A: ECTA SECTION 15 DIGITAL EVIDENCE SCHEDULE")
     c.setFont("Helvetica", 9)
-    c.drawString(45, height - 84, "Domestic Violence Act, 1998 (Act No. 116 of 1998) | Generated via Khusela SafeLedger")
-    c.line(45, height - 92, width - 45, height - 92)
+    c.drawString(
+        45,
+        height - 66,
+        "Attached to Form 06 (J480) Application for Protection Order — Domestic Violence Act 116 of 1998",
+    )
+    c.line(45, height - 74, width - 45, height - 74)
 
-    y = height - 115
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(45, y, f"1. APPLICANT: {data.applicant_full_name}")
-    y -= 16
-    c.drawString(45, y, f"2. RESPONDENT: {data.respondent_full_name}")
-    y -= 16
-    c.drawString(45, y, f"3. DATE / TIME OF INCIDENT(S): {data.incident_date_time}")
-    y -= 16
-    c.drawString(45, y, f"4. LOCATION: {data.incident_location}")
-
-    y -= 26
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(45, y, "5. NATURE OF DOMESTIC VIOLENCE (SECTION 4 PARTICULARS):")
-    c.setFont("Helvetica", 9.5)
-    for item in data.nature_of_domestic_violence:
-        y -= 14
-        c.drawString(60, y, f"[X] {item}")
-
-    y -= 24
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(45, y, "6. CHRONOLOGICAL AFFIDAVIT NARRATIVE (FACTS OF INCIDENT):")
-    c.setFont("Helvetica", 9.5)
-    for line in _wrap_text(data.chronological_affidavit_narrative, 86):
-        y -= 13
-        c.drawString(50, y, line)
-
-    y -= 22
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(45, y, "7. WEAPONS OR THREATS INVOLVED:")
-    c.setFont("Helvetica", 9.5)
-    for line in _wrap_text(data.weapons_or_threats_involved, 86):
-        y -= 13
-        c.drawString(50, y, line)
-
-    y -= 22
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(45, y, "8. GROUNDS FOR URGENCY (INTERIM PROTECTION ORDER):")
-    c.setFont("Helvetica", 9.5)
-    for line in _wrap_text(data.urgency_grounds_section_4, 86):
-        y -= 13
-        c.drawString(50, y, line)
-
-    y -= 22
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(45, y, "9. REQUESTED PROTECTION ORDER TERMS:")
-    c.setFont("Helvetica", 9.5)
-    for term in data.requested_protection_terms:
-        y -= 13
-        c.drawString(60, y, f"- {term}")
-
-    y -= 24
+    y = height - 98
     c.setFont("Helvetica-Bold", 9.5)
-    c.drawString(45, y, "10. ECTA SECTION 15 CRYPTOGRAPHIC EVIDENCE CHAIN-OF-CUSTODY (SHA-256):")
-    c.setFont("Courier", 8)
-    for idx, digest in enumerate(data.evidence_sha256_manifest, start=1):
-        y -= 12
-        c.drawString(50, y, f"Exhibit #{idx}: {digest}")
+    c.drawString(45, y, f"APPLICANT: {data.applicant_full_name}")
+    y -= 15
+    c.drawString(45, y, f"RESPONDENT: {data.respondent_full_name}")
+    y -= 15
+    c.drawString(45, y, f"INCIDENT TIMESTAMP: {data.incident_date_time}")
 
-    y -= 24
-    c.setFont("Helvetica-Oblique", 8)
+    y -= 25
+    c.setFont("Helvetica-Bold", 9.5)
+    c.drawString(45, y, "SECTION 4 FULL AFFIDAVIT CONTINUATION:")
+    c.setFont("Helvetica", 9)
+    for line in _wrap_text(data.chronological_affidavit_narrative, 88):
+        y -= 13
+        c.drawString(45, y, line)
+
+    y -= 25
+    c.setFont("Helvetica-Bold", 9.5)
+    c.drawString(45, y, "TAMPER-EVIDENT SERVER-SYNCED EXHIBIT HASHES (SHA-256):")
+    c.setFont("Courier", 8.5)
+    for idx, digest in enumerate(data.evidence_sha256_manifest, start=1):
+        y -= 13
+        c.drawString(45, y, f"Exhibit #{idx:02d} : {digest}")
+
+    y -= 25
+    c.setFont("Helvetica", 8)
     c.drawString(
         45,
         max(y, 40),
-        f"Sealed UTC Timestamp: {datetime.now(timezone.utc).isoformat()} | Admissible Electronic Evidence Schedule",
+        f"Server Sync Verification UTC: {datetime.now(timezone.utc).isoformat()} | Tamper-Evident Chain-of-Custody",
     )
     c.showPage()
     c.save()
@@ -238,35 +302,22 @@ async def generate_form06_pdf(data: Form06StructuredData):
     if os.path.exists(template_path):
         try:
             template_reader = PdfReader(template_path)
-            # Create a lightweight header stamp for page 1 of official template
-            stamp_buf = io.BytesIO()
-            stamp_canvas = canvas.Canvas(stamp_buf, pagesize=A4)
-            stamp_canvas.setFont("Helvetica-Bold", 8)
-            stamp_canvas.drawString(
-                36,
-                18,
-                f"KHUSELA SAFELEDGER ANNEXURE ATTACHED | APPLICANT: {data.applicant_full_name} | UTC: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}",
-            )
-            stamp_canvas.save()
-            stamp_buf.seek(0)
-            stamp_reader = PdfReader(stamp_buf)
-
+            page_overlays = _build_page_overlays(data)
             for i, page in enumerate(template_reader.pages):
-                if i == 0:
-                    page.merge_page(stamp_reader.pages[0])
+                if i in page_overlays:
+                    page.merge_page(page_overlays[i])
                 writer.add_page(page)
         except Exception:
             pass
 
-    # Append the structured Section 4 Affidavit & SHA-256 Evidence Schedule page
     writer.add_page(annexure_reader.pages[0])
 
-    tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf", prefix="Khusela_Form06_J480_")
+    tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf", prefix="Form06_J480_")
     with open(tmp_file.name, "wb") as f_out:
         writer.write(f_out)
 
     return FileResponse(
         path=tmp_file.name,
         media_type="application/pdf",
-        filename="Form06_J480_Protection_Order_Application.pdf",
+        filename="Form06_J480_Protection_Order.pdf",
     )

@@ -1,17 +1,21 @@
 import React, { useState } from 'react';
-import { FileText, Sparkles, Download, CheckCircle2, Loader2, ShieldAlert } from 'lucide-react';
 
-export default function Form06Review({ evidenceItems = [] }) {
+export default function Form06Review({ evidenceItems = [], onNarrativeChange }) {
   const [rawNotes, setRawNotes] = useState(
-    'On 22 October around 21:30 at our residence in Soweto, the respondent locked the front door, threatened me with physical harm if I accessed my bank account, and struck the kitchen table repeatedly.'
+    'On 22 October at 21:30 at our residence in Soweto, the respondent locked the front door, threatened me with physical harm if I accessed my bank account, and struck the kitchen table.'
   );
-  const [survivorName, setSurvivorName] = useState('Nomsa Dlamini (Applicant)');
-  const [respondentName, setRespondentName] = useState('Sipho Dlamini (Respondent)');
+  const [survivorName, setSurvivorName] = useState('Nomsa Dlamini');
+  const [respondentName, setRespondentName] = useState('Sipho Dlamini');
   const [structuredData, setStructuredData] = useState(null);
   const [humanConfirmed, setHumanConfirmed] = useState(false);
   const [loadingStructure, setLoadingStructure] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  const handleNotesChange = (val) => {
+    setRawNotes(val);
+    if (onNarrativeChange) onNarrativeChange(val);
+  };
 
   const handleStructureWithAI = async () => {
     setLoadingStructure(true);
@@ -29,18 +33,15 @@ export default function Form06Review({ evidenceItems = [] }) {
           evidence_hashes: hashes,
         }),
       });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       setStructuredData(data);
     } catch {
-      // Offline / local fallback structuring
       setStructuredData({
         applicant_full_name: survivorName,
         respondent_full_name: respondentName,
         incident_date_time: new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
-        incident_location: 'Primary Shared Residence (Gauteng, RSA)',
+        incident_location: 'Primary Shared Residence',
         nature_of_domestic_violence: [
           'Physical Abuse / Intimidation',
           'Emotional, Verbal and Psychological Abuse',
@@ -49,7 +50,7 @@ export default function Form06Review({ evidenceItems = [] }) {
         chronological_affidavit_narrative: `I, ${survivorName}, state under oath that the Respondent (${respondentName}) committed acts of domestic violence in terms of the Domestic Violence Act 116 of 1998: ${rawNotes}`,
         weapons_or_threats_involved: 'Threats of physical violence, unlawful confinement, and financial coercion.',
         urgency_grounds_section_4:
-          'Imminent risk of escalated physical harm requires an urgent ex parte Interim Protection Order under Section 5(2).',
+          'Imminent risk of physical harm requires an urgent ex parte Interim Protection Order under Section 5(2).',
         requested_protection_terms: [
           'Prohibit Respondent from committing any act of domestic violence',
           'Prohibit Respondent from entering the shared residence',
@@ -71,86 +72,90 @@ export default function Form06Review({ evidenceItems = [] }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(structuredData),
       });
-      if (!response.ok) {
-        throw new Error('Failed to generate PDF from backend');
-      }
+      if (!response.ok) throw new Error('Backend unreachable');
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'Form06_J480_Protection_Order_Application.pdf';
+      a.download = 'Form06_J480_Protection_Order.pdf';
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
     } catch {
-      setErrorMsg('Ensure FastAPI backend is running on http://localhost:8000 to download PDF.');
+      setErrorMsg('Backend server on port 8000 is not reachable.');
     } finally {
       setDownloadingPdf(false);
     }
   };
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 rounded-xl bg-teal-500/10 border border-teal-500/30">
-            <FileText className="w-5 h-5 text-teal-400" />
-          </div>
-          <div>
-            <h3 className="text-sm font-bold text-white">
-              Human-in-the-Loop Legal Review &amp; DoJ Form 06 (J480) PDF Overlay
-            </h3>
-            <p className="text-xs text-slate-400">
-              Zero-Hallucination Strict Schema + Mandatory Survivor Verification Before Export
-            </p>
-          </div>
+    <section className="border border-neutral-800 bg-[#161615] p-5 space-y-4">
+      <div className="flex items-baseline justify-between border-b border-neutral-800 pb-3">
+        <div>
+          <h2 className="text-sm font-semibold text-neutral-100 uppercase tracking-wider">
+            Form 06 (J480) — Section 4 Affidavit Preparation
+          </h2>
+          <p className="text-xs text-neutral-400 mt-0.5">
+            Department of Justice &amp; Constitutional Development (Domestic Violence Act 116 of 1998)
+          </p>
         </div>
+        <span className="font-mono text-[11px] text-neutral-500">J480 OVERLAY</span>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className="block text-[11px] text-slate-400 mb-1">Applicant Full Name</label>
+          <label className="block text-[11px] font-mono uppercase text-neutral-400 mb-1">
+            Applicant (Deponent)
+          </label>
           <input
             type="text"
             value={survivorName}
             onChange={(e) => setSurvivorName(e.target.value)}
-            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-teal-500"
+            className="w-full px-3 py-2 bg-[#0e0e0d] border border-neutral-800 text-xs text-neutral-100 focus:outline-none focus:border-neutral-500"
           />
         </div>
         <div>
-          <label className="block text-[11px] text-slate-400 mb-1">Respondent Full Name</label>
+          <label className="block text-[11px] font-mono uppercase text-neutral-400 mb-1">
+            Respondent
+          </label>
           <input
             type="text"
             value={respondentName}
             onChange={(e) => setRespondentName(e.target.value)}
-            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-teal-500"
+            className="w-full px-3 py-2 bg-[#0e0e0d] border border-neutral-800 text-xs text-neutral-100 focus:outline-none focus:border-neutral-500"
           />
         </div>
       </div>
 
-      {/* Side-by-Side Verbatim vs AI Review */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
-          <label className="block text-[11px] font-bold uppercase tracking-wider text-amber-400">
-            1. Verbatim Voice Transcript (Original)
-          </label>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-[11px] font-mono uppercase text-neutral-400">
+              1. Verbatim Statement (Input)
+            </label>
+            <span className="text-[11px] font-mono text-neutral-500">{rawNotes.length} chars</span>
+          </div>
           <textarea
-            rows={4}
+            rows={5}
             value={rawNotes}
-            onChange={(e) => setRawNotes(e.target.value)}
-            className="w-full p-2 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-200 focus:outline-none focus:border-teal-500"
-            placeholder="Describe what happened in your own words..."
+            onChange={(e) => handleNotesChange(e.target.value)}
+            className="w-full p-3 bg-[#0e0e0d] border border-neutral-800 text-xs text-neutral-200 leading-relaxed focus:outline-none focus:border-neutral-500"
           />
         </div>
 
-        <div className="p-3 rounded-xl bg-slate-950 border border-teal-500/30 space-y-1.5">
-          <label className="block text-[11px] font-bold uppercase tracking-wider text-teal-400">
-            2. AI Structured Statement (Section 4)
-          </label>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-[11px] font-mono uppercase text-neutral-400">
+              2. Structured Section 4 Draft (Editable)
+            </label>
+            <span className="text-[11px] font-mono text-neutral-500">
+              {structuredData ? 'READY FOR REVIEW' : 'PENDING'}
+            </span>
+          </div>
           {structuredData ? (
             <textarea
-              rows={4}
+              rows={5}
               value={structuredData.chronological_affidavit_narrative}
               onChange={(e) =>
                 setStructuredData({
@@ -158,68 +163,52 @@ export default function Form06Review({ evidenceItems = [] }) {
                   chronological_affidavit_narrative: e.target.value,
                 })
               }
-              className="w-full p-2 rounded-lg bg-slate-900 border border-teal-500/30 text-xs text-slate-200 focus:outline-none focus:border-teal-400"
+              className="w-full p-3 bg-[#0e0e0d] border border-neutral-700 text-xs text-neutral-100 leading-relaxed focus:outline-none focus:border-neutral-400"
             />
           ) : (
-            <div className="h-24 flex items-center justify-center text-xs text-slate-500 italic text-center px-3">
-              Click &ldquo;Structure Section 4 Affidavit&rdquo; below to generate draft for human review.
+            <div className="h-[118px] bg-[#0e0e0d] border border-neutral-800 flex items-center justify-center p-4 text-xs text-neutral-500">
+              Click &ldquo;Draft Section 4 Statement&rdquo; to structure your notes into court format.
             </div>
           )}
         </div>
       </div>
 
       {structuredData && (
-        <div className="p-3.5 rounded-xl bg-slate-950 border border-teal-500/30 space-y-3 text-xs">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-1.5 text-teal-400 font-semibold">
-              <CheckCircle2 className="w-4 h-4" />
-              <span>Detected Statutory Abuse Categories (Form 06 Section 6a)</span>
-            </div>
-            <span className="text-[11px] text-emerald-400 font-mono">
-              Tamper-Evident Server Synced (SHA-256)
-            </span>
-          </div>
-
+        <div className="p-3 bg-[#0e0e0d] border border-neutral-800 space-y-3">
           <div className="flex flex-wrap gap-1.5">
-            {structuredData.nature_of_domestic_violence?.map((tag, idx) => (
+            {structuredData.nature_of_domestic_violence?.map((item, idx) => (
               <span
                 key={idx}
-                className="px-2 py-0.5 rounded-md bg-teal-950 text-teal-300 border border-teal-800 text-[11px]"
+                className="px-2 py-0.5 bg-neutral-900 border border-neutral-700 font-mono text-[11px] text-neutral-300"
               >
-                {tag}
+                {item}
               </span>
             ))}
           </div>
 
-          {/* Mandatory Human-in-the-Loop Confirmation Toggle */}
-          <label className="flex items-center gap-2.5 pt-2 border-t border-slate-800 cursor-pointer select-none">
+          <label className="flex items-center gap-2.5 pt-2 border-t border-neutral-800 cursor-pointer select-none">
             <input
               type="checkbox"
               checked={humanConfirmed}
               onChange={(e) => setHumanConfirmed(e.target.checked)}
-              className="w-4 h-4 rounded accent-teal-500"
+              className="w-3.5 h-3.5 accent-neutral-200"
             />
-            <span className="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
-              <ShieldAlert className="w-4 h-4 text-amber-400" />
-              I confirm facts and dates are accurate (Mandatory Human-in-the-Loop Sign-off)
+            <span className="text-xs text-neutral-300">
+              I have read the structured Section 4 draft above and confirm that the dates, names,
+              and facts are accurate.
             </span>
           </label>
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2.5">
+      <div className="flex flex-wrap items-center gap-3 pt-1">
         <button
           type="button"
           onClick={handleStructureWithAI}
           disabled={loadingStructure}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-semibold text-xs transition disabled:opacity-50"
+          className="px-4 py-2 bg-neutral-200 hover:bg-white text-neutral-950 font-medium text-xs transition disabled:opacity-50"
         >
-          {loadingStructure ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Sparkles className="w-4 h-4" />
-          )}
-          Structure Section 4 Affidavit (Gemini 2.5)
+          {loadingStructure ? 'Structuring...' : 'Draft Section 4 Statement'}
         </button>
 
         {structuredData && (
@@ -227,20 +216,14 @@ export default function Form06Review({ evidenceItems = [] }) {
             type="button"
             onClick={handleGeneratePdf}
             disabled={downloadingPdf || !humanConfirmed}
-            title={!humanConfirmed ? 'Please check the confirmation box above first' : ''}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-4 py-2 bg-[#d9532f] hover:bg-[#c04625] text-white font-medium text-xs transition disabled:opacity-30 disabled:cursor-not-allowed"
           >
-            {downloadingPdf ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Download className="w-4 h-4" />
-            )}
-            Generate Form 06 (J480) PDF
+            {downloadingPdf ? 'Generating PDF...' : 'Export Official Form 06 (J480) PDF'}
           </button>
         )}
-      </div>
 
-      {errorMsg && <p className="text-xs text-rose-400">{errorMsg}</p>}
-    </div>
+        {errorMsg && <span className="text-xs text-red-400 font-mono">{errorMsg}</span>}
+      </div>
+    </section>
   );
 }
