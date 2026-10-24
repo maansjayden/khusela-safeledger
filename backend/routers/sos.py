@@ -86,13 +86,13 @@ async def enrich_sos_audio_threat(user_id: str, lat: float, lng: float, audio_by
                 )
             )
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3-flash-preview",
             contents=contents,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
             ),
         )
-        logger.info(f"[ENRICH-SECOND] Gemini 2.5 Flash Threat Assessment: {response.text}")
+        logger.info(f"[ENRICH-SECOND] Gemini 3 Flash Threat Assessment: {response.text}")
     except Exception as exc:
         logger.error(f"[ENRICH-SECOND] Gemini threat extraction error: {exc}")
 

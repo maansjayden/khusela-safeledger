@@ -25,6 +25,8 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [mode]);
 
+  const activeAudioRef = useRef(null);
+
   const playSimulatedCallAudio = useCallback((targetPhone) => {
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -47,15 +49,24 @@ export default function App() {
       // ignore
     }
 
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const briefing = new SpeechSynthesisUtterance(
-        `Priority Duress Alert for ${targetPhone}. Coordinates locked at Latitude minus 26.2041, Longitude 28.0473. Immediate dispatch requested.`
-      );
-      briefing.lang = 'en-ZA';
-      briefing.rate = 0.98;
-      window.speechSynthesis.speak(briefing);
-    }
+    setTimeout(() => {
+      if (activeAudioRef.current) {
+        activeAudioRef.current.pause();
+      }
+      const briefingAudio = new Audio('http://localhost:8000/static/emergency_briefing.mp3');
+      activeAudioRef.current = briefingAudio;
+      briefingAudio.play().catch(() => {
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+          const briefing = new SpeechSynthesisUtterance(
+            `Priority Duress Alert for ${targetPhone}. Coordinates locked at Latitude minus 26.2041, Longitude 28.0473. Immediate dispatch requested.`
+          );
+          briefing.lang = 'en-ZA';
+          briefing.rate = 0.98;
+          window.speechSynthesis.speak(briefing);
+        }
+      });
+    }, 950);
   }, []);
 
   const triggerSilentDuressSOS = useCallback(async () => {

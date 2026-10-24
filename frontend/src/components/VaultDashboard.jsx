@@ -308,15 +308,24 @@ export default function VaultDashboard({
     });
   };
 
+  const audioPlayerRef = useRef(null);
+
   const playRightsAudio = (lang) => {
     setSelectedLang(lang);
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(RIGHTS_TEXT[lang].body);
-      u.lang = RIGHTS_TEXT[lang].lang;
-      u.rate = 0.98;
-      window.speechSynthesis.speak(u);
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
     }
+    const audio = new Audio(`http://localhost:8000/static/rights_${lang}.mp3`);
+    audioPlayerRef.current = audio;
+    audio.play().catch(() => {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(RIGHTS_TEXT[lang].body);
+        u.lang = RIGHTS_TEXT[lang].lang;
+        u.rate = 0.98;
+        window.speechSynthesis.speak(u);
+      }
+    });
   };
 
   return (
