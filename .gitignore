@@ -11,10 +11,11 @@ __pycache__/
 venv/
 env/
 
-# Node / Frontend
+# Node / Frontend / SDKs
 node_modules/
 dist/
 .vite/
+flutter/
 
 # OS / Editor
 .DS_Store
