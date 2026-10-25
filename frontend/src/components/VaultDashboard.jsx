@@ -35,14 +35,37 @@ export default function VaultDashboard({
   locationError,
   onEnableLocation,
 }) {
-  // Mobile bottom navigation tabs: 'capture' | 'form06' | 'ledger' | 'rights'
-  const [activeTab, setActiveTab] = useState('capture');
+  // Mobile bottom navigation tabs: 'form06' | 'capture' | 'ledger' | 'rights'
+  const [activeTab, setActiveTab] = useState('form06');
   const [evidenceList, setEvidenceList] = useState([]);
   const [selectedLang, setSelectedLang] = useState('English');
   const [statusLine, setStatusLine] = useState('');
   const [narrativeText, setNarrativeText] = useState('');
   const [survivorName, setSurvivorName] = useState('');
   const [respondentName, setRespondentName] = useState('');
+  const [form06Fields, setForm06Fields] = useState({
+    applicant_surname: '',
+    applicant_full_names: '',
+    applicant_id_or_dob: '',
+    applicant_gender: '',
+    applicant_race: '',
+    applicant_marital_status: '',
+    applicant_phone: '',
+    applicant_email: '',
+    applicant_address: '',
+    applicant_occupation: '',
+    relationship_to_respondent: 'Current co-resident / Partner',
+    respondent_surname: '',
+    respondent_full_names: '',
+    respondent_id_or_dob: '',
+    respondent_phone: '',
+    respondent_email: '',
+    respondent_address: '',
+    respondent_work_address: '',
+    respondent_occupation: '',
+    police_station: '',
+    magistrates_court: '',
+  });
   const [structuredData, setStructuredData] = useState(null);
   const [humanConfirmed, setHumanConfirmed] = useState(false);
 
@@ -528,6 +551,8 @@ export default function VaultDashboard({
             setSurvivorName={setSurvivorName}
             respondentName={respondentName}
             setRespondentName={setRespondentName}
+            form06Fields={form06Fields}
+            setForm06Fields={setForm06Fields}
             structuredData={structuredData}
             setStructuredData={setStructuredData}
             humanConfirmed={humanConfirmed}
@@ -689,8 +714,8 @@ export default function VaultDashboard({
       {/* Native-Style Mobile Bottom Tab Bar */}
       <nav className="grid grid-cols-4 bg-[#141413] border-t border-neutral-800 shrink-0">
         {[
-          { id: 'capture', label: 'Capture' },
           { id: 'form06', label: 'Form 06' },
+          { id: 'capture', label: 'Capture' },
           { id: 'ledger', label: `Exhibits (${evidenceList.length})` },
           { id: 'rights', label: 'Rights / SOS' },
         ].map((t) => (
