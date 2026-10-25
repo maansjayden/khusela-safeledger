@@ -11,7 +11,7 @@
    - Renders a functional South African ZAR (`R`) grocery & 15% VAT calculator with installable PWA icons (`192x192`, `512x512`, maskable, and Apple touch icon) and zero URL/history leaks.
    - **Duress PIN (`9999` + `=`)**: Keeps the calculator on screen, acquires the **Screen Wake Lock API** (re-acquiring on tab visibility changes), and triggers `POST /api/v1/sos/trigger` to call and SMS the configured **Trusted Contact** with a live Google Maps link when device GPS is available. Never dials real emergency shortcodes (`10111`, `10177`, `112`, `0800428428`) and never substitutes fake default coordinates when GPS is unavailable.
    - **Vault PIN (`2580` + `=`)**: Unlocks the **Khusela Vault** using the entered PIN in memory to derive the PBKDF2 encryption key.
-   - **Quick Exit & 3-Strike Shredder**: **QUICK EXIT** (or device shake) clears the in-memory PIN and returns to the calculator. **BURN** (or 3 consecutive failed 4-digit PIN attempts) clears and deletes the local IndexedDB store.
+   - **Quick Exit (`<16ms`), Volume-Down Rocker & 3-Strike Shredder**: **QUICK EXIT**, pressing the **Volume Down** key (`AudioVolumeDown` / `VolumeDown` / `Escape` or the interactive Volume-Down rocker on the desktop phone simulator frame), or shaking the handset immediately clears the in-memory PIN and returns to the calculator. **BURN** (or 3 consecutive failed 4-digit PIN attempts) clears and deletes the local IndexedDB store.
 
 2. **Off-Gallery Evidence Capture & ECTA Section 15 Hashing**
    - Captures `<canvas>` WebP/PNG photos (`camera.js`), `MediaRecorder` voice notes, and written incident notes directly into IndexedDB without saving files to the phone's photo gallery.
