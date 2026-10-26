@@ -26,7 +26,7 @@ Most safety apps are built for the moment of danger and forget the weeks before 
 
 | Moment | The problem | What Khusela does |
 |---|---|---|
-| **1. The danger** | She cannot call or message without being seen | Type `9999` then `=` on a calculator. The screen stays a calculator. Her trusted contact is alerted with a live map pin. |
+| **1. The danger** | She cannot call or message without being seen | Type `9999` then `=` on a calculator. The screen stays a calculator while the alert, with a live map pin, is prepared for her trusted contact. Automatic delivery goes live with carrier funding. |
 | **2. The proof** | Photos and notes in a gallery are found, deleted, or dismissed in court | Evidence goes straight into an encrypted vault, never the gallery, each item sealed with a SHA-256 fingerprint and a server timestamp. |
 | **3. The court** | The Protection Order form is long, legal and intimidating | She types what happened in her own words. Khusela structures it into the official **Form 06 (J480)** and gives her a court-ready PDF. |
 
@@ -43,7 +43,11 @@ You see **Mzansi Smart-Budget**, a rand and 15% VAT grocery calculator. It works
 
 ### Scene 2: The silent alarm
 Type **`9999`** then **`=`**.
-Nothing visible happens, and that is the point. Behind the screen, Khusela takes her location and sends the SOS to her trusted contact: an alert SMS with a Google Maps pin, a spoken briefing, and a one-tap WhatsApp message.
+Nothing visible happens, and that is the point. Khusela takes her location and prepares the full SOS for her trusted contact: an alert SMS with a Google Maps pin, a spoken briefing, and a WhatsApp message.
+
+> **Demo note: carrier delivery is not live yet.** Real delivery of the call and SMS needs a funded Twilio account (see [Honest Limitations](#honest-limitations-and-the-plan)). Right now the silent trigger **builds and logs the alert but does not reach a phone by itself**, because a hidden trigger cannot open WhatsApp or play audio without revealing itself.
+> **To see it in the demo:** after typing `9999=`, unlock the vault with `2580=`, open **Rights / SOS**, and the alert appears in the log with the SMS text, map pin, voice briefing and a one-tap **WhatsApp** button. You can also press **Send test alert to contact** there to run the same flow on demand.
+
 It never dials `10111`, `112` or any emergency line (a hard-coded safety lock), and it never makes up a location if GPS is missing.
 
 ### Scene 3: The vault
@@ -105,9 +109,9 @@ flowchart LR
 ## Honest Limitations (and the plan)
 
 ### Carrier calls and SMS (Twilio)
-The SOS is built for a real carrier voice call and SMS through Twilio. For the hackathon we run on a **Twilio trial with a USD 0.00 balance and no purchased number**, so Twilio blocks the carrier leg itself. This is a **funding limit, not a design or code limit**.
+The SOS is built for a real carrier voice call and SMS through Twilio. For the hackathon we run on a **Twilio trial with a USD 0.00 balance and no purchased number**, so Twilio blocks the carrier leg itself, and **the silent `9999=` trigger cannot deliver to a phone on its own today**. This is a **funding limit, not a design or code limit**: the trigger, location capture, alert text, voice briefing and logging all work, and one funded number switches on delivery with no code changes.
 
-To keep the demo fully working at zero cost, the server **fails over automatically** when the carrier is unavailable:
+To keep the demo working at zero cost, the server **fails over automatically** when the carrier is unavailable, so every part of the alert can be shown from inside the vault:
 
 | Channel | Demo today (free) | With funding |
 |---|---|---|
