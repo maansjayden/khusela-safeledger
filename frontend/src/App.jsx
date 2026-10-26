@@ -249,7 +249,7 @@ export default function App() {
 
   return (
     <div className="h-[100dvh] w-full bg-[#0e0e0d] flex justify-center overflow-hidden select-none">
-      <div className="w-full max-w-2xl h-full bg-[#141413] sm:border-x sm:border-neutral-800/80 flex flex-col overflow-hidden">
+      <div className="w-full h-full bg-[#0e0e0d] flex flex-col overflow-hidden">
         {mode === 'VAULT' && vaultPin ? (
           <VaultDashboard
             vaultPin={vaultPin}

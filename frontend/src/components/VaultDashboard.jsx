@@ -499,43 +499,67 @@ export default function VaultDashboard({
   };
 
   return (
-    <div className="h-full flex flex-col justify-between bg-[#0e0e0d] text-neutral-200 select-none">
-      {/* Sticky Mobile Top Panic Bar */}
-      <header className="px-3.5 py-2.5 bg-[#141413] border-b border-neutral-800 flex items-center justify-between shrink-0">
+    <div className="h-full w-full flex flex-col justify-between bg-[#0e0e0d] text-neutral-200 select-none">
+      {/* Sticky Top Bar (with integrated Desktop Navigation on md+) */}
+      <header className="px-3.5 py-2.5 md:px-8 md:py-3 bg-[#141413] border-b border-neutral-800 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2.5">
           <img
             src="/khusela-logo.jpeg"
             alt="Khusela"
-            className="w-7 h-7 rounded-lg object-cover border border-neutral-700"
+            className="w-7 h-7 md:w-8 md:h-8 rounded-lg object-cover border border-neutral-700"
           />
           <div>
-            <div className="font-mono text-[11px] font-semibold uppercase tracking-wider text-neutral-200">
+            <div className="font-mono text-[11px] md:text-xs font-semibold uppercase tracking-wider text-neutral-200">
               KHUSELA VAULT
             </div>
             <div className="font-mono text-[10px] text-neutral-500">AES-256-GCM</div>
           </div>
         </div>
 
+        {/* Desktop Navigation Pills (hidden on mobile phones) */}
+        <nav className="hidden md:flex items-center gap-1.5 bg-[#0e0e0d] p-1 rounded-xl border border-neutral-800">
+          {[
+            { id: 'form06', label: 'Form 06 (J480)' },
+            { id: 'capture', label: 'Evidence Capture' },
+            { id: 'ledger', label: `Exhibits (${evidenceList.length})` },
+            { id: 'rights', label: 'Rights & SOS' },
+          ].map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setActiveTab(t.id)}
+              className={`px-3.5 py-1.5 rounded-lg font-mono text-xs transition ${
+                activeTab === t.id
+                  ? 'bg-[#d9532f] text-white font-semibold'
+                  : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={handleQuickBurn}
-            className="px-2.5 py-2 rounded-lg border border-neutral-700 active:bg-red-950 text-neutral-400 font-mono text-[11px]"
+            className="px-2.5 py-2 rounded-lg border border-neutral-700 hover:border-red-700 active:bg-red-950 text-neutral-400 hover:text-red-300 font-mono text-[11px] transition"
           >
             BURN
           </button>
           <button
             type="button"
             onClick={onPanicExit}
-            className="px-3.5 py-2 rounded-lg bg-[#d9532f] active:bg-[#b84222] text-white font-mono text-xs font-bold uppercase tracking-wide"
+            className="px-3.5 py-2 rounded-lg bg-[#d9532f] hover:bg-[#c64826] active:bg-[#b84222] text-white font-mono text-xs font-bold uppercase tracking-wide transition"
           >
             QUICK EXIT
           </button>
         </div>
       </header>
 
-      {/* Scrollable Mobile Content Area */}
-      <main className="flex-1 overflow-y-auto p-4 space-y-4 vault-scroller">
+      {/* Scrollable Content Area */}
+      <main className="flex-1 overflow-y-auto p-4 md:p-6 md:pb-24 vault-scroller">
+        <div className="w-full md:max-w-4xl md:mx-auto space-y-4">
         {statusLine && (
           <div className="px-3 py-2 rounded-lg bg-[#181816] border border-neutral-700 font-mono text-[11px] text-emerald-400 truncate">
             {statusLine}
@@ -936,10 +960,11 @@ export default function VaultDashboard({
             </div>
           </div>
         )}
+        </div>
       </main>
 
-      {/* Native-Style Mobile Bottom Tab Bar */}
-      <nav className="grid grid-cols-4 bg-[#141413] border-t border-neutral-800 shrink-0">
+      {/* Native-Style Mobile Bottom Tab Bar (hidden on Desktop where tabs are in the top header) */}
+      <nav className="md:hidden grid grid-cols-4 bg-[#141413] border-t border-neutral-800 shrink-0">
         {[
           { id: 'form06', label: 'Form 06' },
           { id: 'capture', label: 'Capture' },
