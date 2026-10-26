@@ -1,81 +1,156 @@
-# Khusela (SafeLedger): FNB App of the Year Hackathon 2026
+<div align="center">
 
-**Track:** Safer Communities & GBV Response  
-**Camouflage Persona:** *Mzansi Smart-Budget* (South African Household Grocery & 15% VAT Calculator)
+# Khusela
 
----
+### *"To rise up."* A safety and evidence app that looks like a calculator.
 
-## Live Demo
+**FNB App of the Year Hackathon 2026** | Track: **Safer Communities & GBV Response**
 
-**https://khusela.lumesystems.co.za** (installable PWA, HTTPS, real device GPS).
+**[Open the live app: khusela.lumesystems.co.za](https://khusela.lumesystems.co.za)**
 
-| Action | How |
-|---|---|
-| Silent SOS | Type `9999` then `=` on the calculator |
-| Open the vault | Type `2580` then `=` |
-| Form 06 | Vault, **Form 06** tab, **Load Sample**, structure, confirm, download PDF |
-| Alert preview | Vault, **Rights / SOS**, **Send test alert to contact** |
+*Install it from the browser. No app store. No trace in the gallery. It opens as a grocery calculator.*
 
-The free hosting tier sleeps after idle time, so the first load can take up to about 40 seconds.
+</div>
 
 ---
 
-## Known Limitation: Carrier Calls and SMS (Twilio)
+## The Story
 
-The SOS pipeline is built for a real carrier voice call and SMS to the trusted contact via Twilio. For this hackathon we run on a **Twilio trial account with a USD 0.00 balance and no purchased number**, so the carrier leg is blocked by Twilio itself (trial accounts cannot send to unverified numbers, and cannot place calls without a funded number). This is a funding limit, not a design or code limit.
+> **It is 21:40 on a Thursday in Soweto. Nomsa is in the kitchen. He is in the next room, and he has taken her phone twice this month to read it.**
+>
+> She cannot call anyone. She cannot be seen to type a message. If she photographs the bruise on her arm, the photo lands in her gallery, where he will find it.
+>
+> And even if she survives the night, the next morning she will stand in a queue at the Magistrate's Court with a 12-page form, trying to remember dates, times and exact words, with nothing she can prove.
 
-To keep the demo fully functional at zero cost, the server **fails over automatically** to a free relay when the carrier leg is unavailable:
+Most safety apps are built for the moment of danger and forget the weeks before and after it. Khusela covers **all three moments**.
 
-| Channel | Demo behaviour (free) | Funded production behaviour |
+| Moment | The problem | What Khusela does |
 |---|---|---|
-| Voice call | Spoken emergency briefing plays on screen, plus a one-tap native dialer button | Automated Twilio voice call with the pre-recorded briefing |
-| SMS | Full alert text with a Google Maps pin is generated and shown | Delivered by SMS to the trusted contact |
-| WhatsApp | One-tap pre-filled message to the trusted contact | Same, or WhatsApp Business API |
-| Location | Device GPS, with live network location when GPS is unavailable | Same, plus carrier cell-tower location |
-| Offline or zero-data | USSD flow is simulated in the app | Real USSD shortcode through a mobile network aggregator |
-
-Failures are never reported as successes: when the free relay is used, the response says so (`delivery_channel: webrtc_voice_proxy`), and the automated tests assert honest failure reporting without the fallback flag.
+| **1. The danger** | She cannot call or message without being seen | Type `9999` then `=` on a calculator. The screen stays a calculator. Her trusted contact is alerted with a live map pin. |
+| **2. The proof** | Photos and notes in a gallery are found, deleted, or dismissed in court | Evidence goes straight into an encrypted vault, never the gallery, each item sealed with a SHA-256 fingerprint and a server timestamp. |
+| **3. The court** | The Protection Order form is long, legal and intimidating | She types what happened in her own words. Khusela structures it into the official **Form 06 (J480)** and gives her a court-ready PDF. |
 
 ---
 
-## Funding Plan: Taking It to 100% Production
+## See It In 90 Seconds
 
-If funding is awarded, this is the order we would spend it in. Costs are rough estimates and will be confirmed with quotes.
+**Open https://khusela.lumesystems.co.za on your phone** and follow Nomsa's night.
+
+> The first load can take up to about 40 seconds because we run on a free hosting tier. After that it is instant.
+
+### Scene 1: The disguise
+You see **Mzansi Smart-Budget**, a rand and 15% VAT grocery calculator. It works. Anyone who picks up the phone sees groceries.
+
+### Scene 2: The silent alarm
+Type **`9999`** then **`=`**.
+Nothing visible happens, and that is the point. Behind the screen, Khusela takes her location and sends the SOS to her trusted contact: an alert SMS with a Google Maps pin, a spoken briefing, and a one-tap WhatsApp message.
+It never dials `10111`, `112` or any emergency line (a hard-coded safety lock), and it never makes up a location if GPS is missing.
+
+### Scene 3: The vault
+Type **`2580`** then **`=`**. The vault opens.
+- **Capture** a photo, a voice note, or a written note. Nothing touches the gallery.
+- Open **Exhibits** to see each item with its SHA-256 fingerprint and timestamp.
+- Everything is encrypted on the device with **AES-256-GCM**, using a key derived from her PIN (PBKDF2, 100,000 iterations).
+
+### Scene 4: The paperwork
+Open **Form 06**, press **Load Sample**, then **Structure Statement**, tick the confirmation, and press **Download**.
+You get the official Department of Justice **Form 06 (J480)**, every page filled in, plus an **Annexure A** listing her evidence fingerprints.
+
+### Scene 5: The escape hatch
+Press **Quick Exit**, the **Volume Down** key, or shake the phone: it is a calculator again in under 16 ms. Press **Burn**, or enter a wrong PIN 3 times, and the local vault is wiped.
+
+### Scene 6: Her rights, in her language
+Open **Rights / SOS** and play her rights under the Domestic Violence Act in **English, Afrikaans, isiXhosa or isiZulu**.
+
+---
+
+## How It Works
+
+```mermaid
+flowchart LR
+    A["Calculator<br/>(disguise)"] -->|"9999="| B["Silent SOS"]
+    A -->|"2580="| C["Encrypted Vault"]
+    B --> D["Live location<br/>GPS or network"]
+    D --> E["Trusted contact:<br/>SMS + map pin,<br/>voice briefing,<br/>WhatsApp"]
+    B --> F["Gemini threat triage<br/>(background)"]
+    C --> G["Photo / voice / notes<br/>AES-256-GCM, no gallery"]
+    G --> H["SHA-256 + UTC<br/>timestamp"]
+    H --> I["Gemini structures<br/>her own words"]
+    I --> J["Human confirms"]
+    J --> K["Official Form 06 (J480)<br/>PDF + Annexure A"]
+```
+
+**Principles we hold to**
+1. **Alert first, analyse second.** The contact is called and texted before any AI runs. AI work happens in the background and never delays help.
+2. **A human always confirms.** Gemini only structures what the survivor wrote. It must not invent facts, and nothing is exported without her confirmation.
+3. **Honest failure.** If a message cannot be delivered, the app says so. It never shows fake success.
+4. **No server-side evidence storage.** The PDF is generated in memory and sent with `Cache-Control: no-store`.
+
+---
+
+## Why Khusela Stands Out
+
+| Typical safety app | Khusela |
+|---|---|
+| Looks like a safety app, so it is a risk if found | Looks and works like a calculator |
+| Panic button only | Panic button, evidence vault and legal paperwork in one flow |
+| Needs an app store download | Installs from the browser, nothing to find in an app list |
+| Photos saved to the gallery | Off-gallery capture into an encrypted vault |
+| Evidence is hard to defend in court | SHA-256 fingerprints and server timestamps support chain of custody (ECTA section 15) |
+| Legal forms in legal English | Her own words become the official Form 06 |
+| English only | Rights audio in 4 South African languages |
+
+---
+
+## Honest Limitations (and the plan)
+
+### Carrier calls and SMS (Twilio)
+The SOS is built for a real carrier voice call and SMS through Twilio. For the hackathon we run on a **Twilio trial with a USD 0.00 balance and no purchased number**, so Twilio blocks the carrier leg itself. This is a **funding limit, not a design or code limit**.
+
+To keep the demo fully working at zero cost, the server **fails over automatically** when the carrier is unavailable:
+
+| Channel | Demo today (free) | With funding |
+|---|---|---|
+| Voice call | Spoken emergency briefing on screen, plus a one-tap native dialer button | Automated Twilio call with the recorded briefing |
+| SMS | Full alert text with Google Maps pin generated and shown | Delivered by SMS to the trusted contact |
+| WhatsApp | One-tap pre-filled message | Same, or WhatsApp Business API |
+| Location | Device GPS, or live network location when GPS is unavailable | Same, plus carrier cell-tower location |
+| Zero-data | USSD flow simulated in the app | Real USSD shortcode through an aggregator |
+
+When the free relay is used, the response says so (`delivery_channel: webrtc_voice_proxy`). The tests also check that, without the fallback flag, a failed delivery is reported as a failure.
+
+### Funding plan: taking it to 100%
+Every phase plugs into what already exists. Funding switches on the paid carrier leg and adds reach and reliability. It does not need a rebuild. Costs are rough estimates, to be confirmed with quotes.
 
 | Phase | Work | Outcome | Est. cost |
 |---|---|---|---|
-| **1. Week 1** | Upgrade Twilio, buy a South African capable number, register sender ID, set `TWILIO_FROM_NUMBER` | Real voice call and SMS to the trusted contact with no code changes | About R1 000 setup, then roughly R0.50 to R2 per alert |
-| **2. Week 1 to 2** | Always-on hosting (no sleeping), error monitoring, uptime alerts | Reliable 24/7 service | About R150 to R400 per month |
-| **3. Month 1** | Multiple trusted contacts, escalation order, delivery receipts shown in the vault | Alert reaches someone even if the first contact is unreachable | Build time only |
-| **4. Month 1 to 2** | Real USSD shortcode via an aggregator, plus a low-data SMS-only trigger | Works for feature phones and users without data | Aggregator fees, to be quoted |
-| **5. Month 2 to 3** | Partner integration with private security and community patrol groups for dispatch | Alert converts into a response, not only a message | Partnership based |
-| **6. Month 2 to 3** | Native Android wrapper for hardware button triggers and background GPS | Faster and more discreet triggering | Developer account R400 once-off |
-| **7. Ongoing** | Independent security review, POPIA compliance review, user testing with GBV support organisations | Trust and compliance for wide rollout | To be quoted |
-
-**Why this is low risk:** every phase plugs into the architecture that already exists. The server already has the carrier call path, the free failover, the trusted-contact safety lock that blocks emergency numbers, and the evidence integrity chain. Funding turns on the paid carrier leg and adds reach and reliability, it does not require a rebuild.
+| **1. Week 1** | Upgrade Twilio, buy a South African capable number, set `TWILIO_FROM_NUMBER` | Real call and SMS, no code changes | About R1 000 setup, then roughly R0.50 to R2 per alert |
+| **2. Week 1 to 2** | Always-on hosting, error monitoring, uptime alerts | Reliable 24/7 service | About R150 to R400 per month |
+| **3. Month 1** | Several trusted contacts, escalation order, delivery receipts in the vault | Alert still lands if the first contact is unreachable | Build time |
+| **4. Month 1 to 2** | Real USSD shortcode and an SMS-only trigger | Works on feature phones and with no data | Aggregator fees, to be quoted |
+| **5. Month 2 to 3** | Partnerships with private security and community patrols | An alert becomes a response | Partnership based |
+| **6. Month 2 to 3** | Native Android wrapper for hardware button triggers and background GPS | Faster, more discreet trigger | R400 once-off |
+| **7. Ongoing** | Independent security review, POPIA review, testing with GBV support organisations | Trust for wide rollout | To be quoted |
 
 ---
 
-## Core Architecture & Features
+## Tech Stack
 
-1. **Single-Route Camouflaged PWA (`/`)**
-   - Renders a functional South African ZAR (`R`) grocery & 15% VAT calculator with installable PWA icons (`192x192`, `512x512`, maskable, and Apple touch icon) and zero URL/history leaks.
-   - **Duress PIN (`9999` + `=`)**: Keeps the calculator on screen, acquires the **Screen Wake Lock API** (re-acquiring on tab visibility changes), and triggers `POST /api/v1/sos/trigger` to call and SMS the configured **Trusted Contact** with a live Google Maps link when device GPS is available. Never dials real emergency shortcodes (`10111`, `10177`, `112`, `0800428428`) and never substitutes fake default coordinates when GPS is unavailable.
-   - **Vault PIN (`2580` + `=`)**: Unlocks the **Khusela Vault** using the entered PIN in memory to derive the PBKDF2 encryption key.
-   - **Quick Exit (`<16ms`), Volume-Down Rocker & 3-Strike Shredder**: **QUICK EXIT**, pressing the **Volume Down** key (`AudioVolumeDown` / `VolumeDown` / `Escape` or the interactive Volume-Down rocker on the desktop phone simulator frame), or shaking the handset immediately clears the in-memory PIN and returns to the calculator. **BURN** (or 3 consecutive failed 4-digit PIN attempts) clears and deletes the local IndexedDB store.
-
-2. **Off-Gallery Evidence Capture & ECTA Section 15 Hashing**
-   - Captures `<canvas>` WebP/PNG photos (`camera.js`), `MediaRecorder` voice notes, and written incident notes directly into IndexedDB without saving files to the phone's photo gallery.
-   - Encrypts records locally using **PBKDF2-SHA256 (100,000 iterations) + AES-256-GCM** (`crypto.js`, `storage.js`) and verifies raw `SHA-256` digests + UTC server timestamps via `POST /api/v1/evidence/sync`.
-
-3. **DoJ Form 06 (J480) Protection Order Drafting**
-   - Uses **Gemini 2.5 Flash** (`google-genai`, `POST /api/v1/legal/structure`) to structure verbatim survivor notes into Section 4 fields with mandatory human confirmation before export. When offline or when Gemini is unavailable, preserves the survivor's exact notes without inventing facts.
-   - Uses `pypdf` and `ReportLab` (`POST /api/v1/legal/generate-form06`) to stream the overlaid Department of Justice `dv-Form06-J480.pdf` + Annexure A exhibit schedule directly from memory (`Cache-Control: no-store`, zero temporary disk files).
+| Layer | Choice |
+|---|---|
+| Front end | React 18, Vite, Tailwind, installable PWA |
+| Crypto | Web Crypto API: PBKDF2-SHA256 (100k) and AES-256-GCM, SHA-256 hashing |
+| Back end | Python, FastAPI, Uvicorn |
+| AI | Google Gemini via `google-genai` (legal structuring and threat triage) |
+| PDF | `pypdf` and ReportLab overlay on the official DoJ Form 06 template |
+| Messaging | Twilio (voice and SMS) with a free relay fallback |
+| Hosting | Docker on Render, custom domain on HTTPS |
 
 ---
 
-## Environment Configuration (`backend/.env`)
+## Run It Yourself
 
+### Environment (`backend/.env`)
 Copy `backend/.env.example` to `backend/.env` and set:
 
 ```ini
@@ -89,16 +164,12 @@ TRUSTED_CONTACT_NUMBER=+27820000000
 BASE_URL=https://your-public-host.example
 ```
 
-- `TRUSTED_CONTACT_NUMBER`: The single trusted phone number that receives the SOS voice call and SMS location link.
-- `TWILIO_FROM_NUMBER`: Your Twilio voice/SMS-enabled number (on a Twilio Trial account, both sender and recipient numbers must be verified under **Phone Numbers → Manage → Verified Caller IDs**).
-- `BASE_URL`: Public HTTPS origin (automatically inferred from `X-Forwarded-Proto` / `Host` when served behind a reverse proxy or HTTPS tunnel).
+- `TRUSTED_CONTACT_NUMBER`: the single trusted number that receives the SOS.
+- `TWILIO_FROM_NUMBER`: a voice and SMS capable Twilio number. On a trial account, sender and recipient must be verified.
+- `BASE_URL`: public HTTPS origin, inferred from `X-Forwarded-Proto` and `Host` behind a proxy.
+- Without Gemini or Twilio keys the app still runs, using its built-in fallbacks.
 
----
-
-## Local Development & Testing
-
-### 1. Backend (FastAPI on `http://localhost:8000`)
-
+### Backend (`http://localhost:8000`)
 ```bash
 cd backend
 python3 -m venv .venv
@@ -108,34 +179,34 @@ cp .env.example .env
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 2. Frontend (React 18 + Vite on `http://localhost:5173`)
-
+### Frontend (`http://localhost:5173`)
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-
-To build the production PWA served directly by FastAPI on port `8000`:
-
+Build the production PWA that FastAPI serves on port 8000:
 ```bash
 cd frontend
 npm run build
 ```
 
-### 3. Run Automated Backend & Security Tests
-
+### Tests
 ```bash
 backend/.venv/bin/python backend/test_api.py
 ```
+Covers the emergency-number safety lock, honest failure reporting, SMS and voice content, evidence hash integrity, Form 06 PDF generation, and a path traversal guard.
 
----
-
-## Docker Deployment (Render / Railway / Cloud Run)
-
-A multi-stage `Dockerfile` is included at the repository root that builds the React PWA and serves both the static bundle and FastAPI endpoints on `$PORT`:
-
+### Docker
 ```bash
 docker build -t khusela .
 docker run -p 8000:8000 --env-file backend/.env khusela
 ```
+
+---
+
+<div align="center">
+
+**Khusela: because the safest app is the one nobody knows is there.**
+
+</div>
