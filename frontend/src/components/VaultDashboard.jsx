@@ -502,11 +502,18 @@ export default function VaultDashboard({
     <div className="h-full flex flex-col justify-between bg-[#0e0e0d] text-neutral-200 select-none">
       {/* Sticky Mobile Top Panic Bar */}
       <header className="px-3.5 py-2.5 bg-[#141413] border-b border-neutral-800 flex items-center justify-between shrink-0">
-        <div>
-          <div className="font-mono text-[11px] font-semibold uppercase tracking-wider text-neutral-200">
-            KHUSELA VAULT
+        <div className="flex items-center gap-2.5">
+          <img
+            src="/khusela-logo.jpeg"
+            alt="Khusela"
+            className="w-7 h-7 rounded-lg object-cover border border-neutral-700"
+          />
+          <div>
+            <div className="font-mono text-[11px] font-semibold uppercase tracking-wider text-neutral-200">
+              KHUSELA VAULT
+            </div>
+            <div className="font-mono text-[10px] text-neutral-500">AES-256-GCM</div>
           </div>
-          <div className="font-mono text-[10px] text-neutral-500">AES-256-GCM</div>
         </div>
 
         <div className="flex items-center gap-2">

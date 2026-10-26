@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/khusela-logo.jpeg" alt="Khusela Logo" width="210" style="border-radius: 20px;" />
+
 # Khusela
 
 ### *"To rise up."* A safety and evidence app that looks like a calculator.
