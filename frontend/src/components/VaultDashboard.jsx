@@ -408,8 +408,8 @@ export default function VaultDashboard({
       // ignore if AudioContext blocked
     }
 
-    // 2. Play the pre-cached Neural TTS MP3 (/static/emergency_briefing.mp3) first (works on Linux/Mac/Windows/Mobile)
-    const audio = new Audio('/static/emergency_briefing.mp3');
+    // 2. Play the pre-cached Neural TTS MP3 (/static/emergency_briefing.mp3?v=2) first (works on Linux/Mac/Windows/Mobile)
+    const audio = new Audio('/static/emergency_briefing.mp3?v=2');
     audioPlayerRef.current = audio;
     audio.onended = () => setCallAudioPlaying(false);
     audio.onerror = () => setCallAudioPlaying(false);
