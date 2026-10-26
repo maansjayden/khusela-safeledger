@@ -14,11 +14,8 @@ COPY backend/requirements.txt backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 COPY backend/ backend/
 COPY docs/dv-Form06-J480.pdf docs/dv-Form06-J480.pdf
-COPY docs/Khusela_Demo_Video.mp4 backend/static/Khusela_Demo_Video.mp4
-COPY docs/Khusela_Presentation_Deck_FNB_2026.pdf backend/static/Khusela_Presentation_Deck_FNB_2026.pdf
 COPY --from=frontend /app/frontend/dist frontend/dist
 WORKDIR /app/backend
 EXPOSE 8000
 # $PORT is provided by Render/Railway/Cloud Run; falls back to 8000 locally
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
-
