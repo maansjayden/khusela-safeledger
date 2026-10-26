@@ -4,9 +4,6 @@
 **/__pycache__
 **/.env
 frontend/dist
-flutter
+docs
 .vscode
-docs/*.mp4
-docs/Khusela_Presentation_Deck_FNB_2026.pdf
-docs/screenshots
 
