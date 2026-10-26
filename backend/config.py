@@ -15,8 +15,8 @@ class Settings(BaseModel):
     TWILIO_API_KEY_SID: str = os.getenv("TWILIO_API_KEY_SID", "")
     TWILIO_API_KEY_SECRET: str = os.getenv("TWILIO_API_KEY_SECRET", "")
     TWILIO_FROM_NUMBER: str = os.getenv("TWILIO_FROM_NUMBER", "")
-    TRUSTED_CONTACT_NUMBER: str = os.getenv("TRUSTED_CONTACT_NUMBER", "")
-    DEMO_WHITELIST_NUMBER: str = os.getenv("DEMO_WHITELIST_NUMBER", "")
+    TRUSTED_CONTACT_NUMBER: str = os.getenv("TRUSTED_CONTACT_NUMBER", "+27737220854")
+    DEMO_WHITELIST_NUMBER: str = os.getenv("DEMO_WHITELIST_NUMBER", "+27737220854")
     BASE_URL: str = os.getenv("BASE_URL", "http://localhost:8000")
 
 

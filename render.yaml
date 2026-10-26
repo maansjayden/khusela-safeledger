@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: khusela-safeledger
+    runtime: docker
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /api/health
+    envVars:
+      - key: BASE_URL
+        value: https://khusela.lumesystems.co.za
+      - key: TRUSTED_CONTACT_NUMBER
+        value: "+27737220854"
+      - key: DEMO_WHITELIST_NUMBER
+        value: "+27737220854"
+      - key: GEMINI_API_KEY
+        sync: false

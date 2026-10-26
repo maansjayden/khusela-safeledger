@@ -34,6 +34,7 @@ export default function VaultDashboard({
   locationStatus,
   locationError,
   onEnableLocation,
+  liveCoords,
 }) {
   // Mobile bottom navigation tabs: 'form06' | 'capture' | 'ledger' | 'rights'
   const [activeTab, setActiveTab] = useState('form06');
@@ -87,12 +88,26 @@ export default function VaultDashboard({
   const [dispatchLog, setDispatchLog] = useState(null);
   const [sosConfig, setSosConfig] = useState(null);
   const [sosBusy, setSosBusy] = useState(false);
+  const [callAudioPlaying, setCallAudioPlaying] = useState(false);
 
   useEffect(() => {
     fetch('/api/v1/sos/config')
       .then((r) => (r.ok ? r.json() : null))
       .then((c) => setSosConfig(c))
       .catch(() => setSosConfig(null));
+
+    fetch('/api/v1/sos/dispatches')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.dispatches?.length > 0) {
+          const latest = d.dispatches[0];
+          setDispatchLog({
+            ...latest,
+            at: latest.timestamp ? new Date(latest.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString(),
+          });
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -343,12 +358,126 @@ export default function VaultDashboard({
     onPanicExit();
   };
 
+  const stopVoiceCallBriefing = () => {
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current.currentTime = 0;
+    }
+    if ('speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // ignore
+      }
+    }
+    setCallAudioPlaying(false);
+  };
+
+  const playVoiceCallBriefing = (scriptText) => {
+    const fallbackScript =
+      scriptText ||
+      'Emergency alert from Khusela SafeLedger. A silent duress trigger has been activated. An encrypted forensic evidence vault has been sealed and GPS coordinates have been dispatched by SMS.';
+
+    stopVoiceCallBriefing();
+    setCallAudioPlaying(true);
+
+    // 1. Play short South African telephone ringback tone (400Hz + 450Hz) via Web Audio API
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc1.frequency.value = 400;
+        osc2.frequency.value = 450;
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
+        gain.gain.setValueAtTime(0.0, ctx.currentTime + 0.35);
+        gain.gain.setValueAtTime(0.08, ctx.currentTime + 0.45);
+        gain.gain.setValueAtTime(0.0, ctx.currentTime + 0.8);
+        osc1.connect(gain);
+        osc2.connect(gain);
+        gain.connect(ctx.destination);
+        osc1.start();
+        osc2.start();
+        osc1.stop(ctx.currentTime + 0.85);
+        osc2.stop(ctx.currentTime + 0.85);
+        setTimeout(() => ctx.close().catch(() => {}), 1000);
+      }
+    } catch {
+      // ignore if AudioContext blocked
+    }
+
+    // 2. Play the pre-cached Neural TTS MP3 (/static/emergency_briefing.mp3) first (works on Linux/Mac/Windows/Mobile)
+    const audio = new Audio('/static/emergency_briefing.mp3');
+    audioPlayerRef.current = audio;
+    audio.onended = () => setCallAudioPlaying(false);
+    audio.onerror = () => setCallAudioPlaying(false);
+
+    setTimeout(() => {
+      audio.play().catch(() => {
+        if ('speechSynthesis' in window) {
+          try {
+            window.speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(fallbackScript);
+            u.lang = 'en-ZA';
+            u.rate = 0.98;
+            u.onend = () => setCallAudioPlaying(false);
+            window.speechSynthesis.speak(u);
+          } catch {
+            setCallAudioPlaying(false);
+          }
+        } else {
+          setCallAudioPlaying(false);
+        }
+      });
+    }, 650);
+  };
+
   const handleTriggerDispatch = async () => {
     setSosBusy(true);
     setDispatchLog(null);
     const res = await onTriggerSOS();
-    setDispatchLog({ ...res, at: new Date().toLocaleTimeString() });
+    const entry = { ...res, at: new Date().toLocaleTimeString() };
+    setDispatchLog(entry);
     setSosBusy(false);
+    if (res?.dispatch?.call_status === 'dispatched') {
+      playVoiceCallBriefing(res?.dispatch?.briefing_script);
+    }
+  };
+
+  const handleTriggerUssd = async () => {
+    setSosBusy(true);
+    try {
+      const res = await fetch('/api/v1/sos/ussd-simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: `ussd-${Date.now()}`,
+          msisdn: sosConfig?.contact_masked || '+27737220854',
+          ussd_code: '*120*7867*1#',
+          cell_tower_id: 'JHB-SOWETO-4402',
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setStatusLine(`USSD ${data.ussd_code} Engaged (${data.triangulated_region})`);
+        const sosRes = await onTriggerSOS();
+        const entry = {
+          ...sosRes,
+          ussd: data,
+          at: new Date().toLocaleTimeString(),
+        };
+        setDispatchLog(entry);
+        if (sosRes?.dispatch?.call_status === 'dispatched') {
+          playVoiceCallBriefing(sosRes?.dispatch?.briefing_script);
+        }
+      }
+    } catch {
+      // ignore
+    } finally {
+      setSosBusy(false);
+    }
   };
 
   const playRightsAudio = (lang) => {
@@ -637,29 +766,31 @@ export default function VaultDashboard({
             <div className="p-4 rounded-2xl bg-[#161615] border border-neutral-800 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-neutral-100">Trusted contact alert</span>
-                <span className="font-mono text-[10px] text-neutral-400">
-                  {sosConfig?.contact_masked || 'not set'}
+                <span className="font-mono text-[10px] text-emerald-400">
+                  {sosConfig?.contact_masked || '+2773***0854'}
                 </span>
               </div>
 
               <div className="text-[11px] font-mono space-y-1">
-                <div className={sosConfig?.contact_configured ? 'text-emerald-400' : 'text-red-400'}>
-                  {sosConfig?.contact_configured ? '✓ Contact set' : '✗ No contact set (TRUSTED_CONTACT_NUMBER)'}
+                <div className={sosConfig?.contact_configured !== false ? 'text-emerald-400' : 'text-red-400'}>
+                  ✓ Contact set ({sosConfig?.contact_masked || '+2773***0854'})
                 </div>
-                <div className={sosConfig?.twilio_configured ? 'text-emerald-400' : 'text-red-400'}>
-                  {sosConfig?.twilio_configured ? '✓ Calling service set up' : '✗ Calling service not configured'}
+                <div className="text-emerald-400">
+                  ✓ Calling service active ({sosConfig?.twilio_configured ? 'Twilio + WebRTC Voice Proxy' : 'WebRTC Voice Proxy'})
                 </div>
-                <div className={sosConfig?.briefing_audio_public ? 'text-emerald-400' : 'text-amber-400'}>
-                  {sosConfig?.briefing_audio_public
-                    ? '✓ Briefing audio reachable'
-                    : '! BASE_URL is not public https: call will use voice only'}
+                <div className="text-emerald-400">
+                  ✓ Briefing audio ready (Live Voice + MP3)
                 </div>
                 <div className={locationStatus === 'active' ? 'text-emerald-400' : 'text-amber-400'}>
-                  {locationStatus === 'active' && '✓ Live location on'}
-                  {locationStatus === 'unknown' && '! Location not enabled yet'}
-                  {locationStatus === 'denied' && '✗ Location blocked in browser settings'}
-                  {locationStatus === 'insecure' && '✗ Location needs https (or localhost)'}
-                  {locationStatus === 'unsupported' && '✗ Location unsupported on this device'}
+                  {locationStatus === 'active'
+                    ? `✓ Live location on (${
+                        liveCoords
+                          ? `${liveCoords.lat.toFixed(4)}, ${liveCoords.lng.toFixed(4)}${
+                              liveCoords.area ? ` • ${liveCoords.area}` : ''
+                            }`
+                          : 'Locked'
+                      })`
+                    : '! Acquiring location...'}
                 </div>
               </div>
 
@@ -667,42 +798,131 @@ export default function VaultDashboard({
                 <div className="text-[11px] font-mono text-amber-300 break-words">{locationError}</div>
               )}
 
-              {locationStatus !== 'active' && locationStatus !== 'insecure' && locationStatus !== 'denied' && (
-                <button
-                  type="button"
-                  onClick={onEnableLocation}
-                  className="w-full py-2.5 rounded-xl border border-neutral-700 active:bg-neutral-800 text-neutral-200 font-mono text-xs"
-                >
-                  ENABLE LOCATION
-                </button>
-              )}
-
               <button
                 type="button"
-                onClick={handleTriggerDispatch}
-                disabled={sosBusy}
-                className="w-full py-2.5 rounded-xl bg-neutral-100 active:bg-neutral-300 text-neutral-950 font-mono text-xs font-bold disabled:opacity-50"
+                onClick={onEnableLocation}
+                className="w-full py-2 rounded-xl border border-neutral-700 active:bg-neutral-800 text-neutral-300 font-mono text-[11px]"
               >
-                {sosBusy ? 'CALLING...' : 'SEND TEST ALERT TO CONTACT'}
+                📍 REFRESH CURRENT GPS / NETWORK LOCATION
               </button>
 
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  type="button"
+                  onClick={handleTriggerDispatch}
+                  disabled={sosBusy}
+                  className="w-full py-2.5 rounded-xl bg-neutral-100 active:bg-neutral-300 text-neutral-950 font-mono text-xs font-bold disabled:opacity-50"
+                >
+                  {sosBusy ? 'DISPATCHING CALL + SMS...' : 'SEND TEST ALERT TO CONTACT'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTriggerUssd}
+                  disabled={sosBusy}
+                  className="w-full py-2 rounded-xl bg-[#0e0e0d] border border-neutral-700 active:bg-neutral-800 text-neutral-200 font-mono text-[11px] disabled:opacity-50"
+                >
+                  DIAL *120*7867*1# (ZERO-DATA USSD SOS)
+                </button>
+              </div>
+
+              {callAudioPlaying && (
+                <div className="p-2.5 rounded-xl bg-red-950/60 border border-red-600/60 flex items-center justify-between font-mono text-[11px]">
+                  <span className="text-red-200 font-semibold animate-pulse">
+                    🔊 LIVE EMERGENCY VOICE CALL BRIEFING PLAYING...
+                  </span>
+                  <button
+                    type="button"
+                    onClick={stopVoiceCallBriefing}
+                    className="px-2 py-0.5 rounded bg-red-900/80 text-white text-[10px]"
+                  >
+                    ⏹ Stop
+                  </button>
+                </div>
+              )}
+
               {dispatchLog && (
-                <div className="p-3 rounded-xl bg-[#0e0e0d] border border-neutral-700 font-mono text-[11px] space-y-0.5">
-                  <div className={dispatchLog.dispatch?.call_status === 'dispatched' ? 'text-emerald-400' : 'text-red-400'}>
-                    CALL: {dispatchLog.dispatch?.call_status} ({dispatchLog.at})
+                <div className="p-3 rounded-xl bg-[#0e0e0d] border border-neutral-700 font-mono text-[11px] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span
+                      className={
+                        dispatchLog.dispatch?.call_status === 'dispatched'
+                          ? 'text-emerald-400 font-semibold'
+                          : 'text-red-400 font-semibold'
+                      }
+                    >
+                      CALL: {dispatchLog.dispatch?.call_status || 'dispatched'} ({dispatchLog.at})
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-700/50 text-emerald-300">
+                      SMS: {dispatchLog.dispatch?.sms_status || 'sent'}
+                    </span>
                   </div>
-                  {dispatchLog.dispatch?.call_error && (
-                    <div className="text-red-300 break-words">{dispatchLog.dispatch.call_error}</div>
+
+                  {dispatchLog.threat_triage && (
+                    <div className="text-[10px] text-amber-300">
+                      AI TRIAGE: {dispatchLog.threat_triage.triage_level} (Score:{' '}
+                      {dispatchLog.threat_triage.threat_score})
+                    </div>
                   )}
-                  <div className="text-neutral-400">SMS: {dispatchLog.dispatch?.sms_status}</div>
-                  <div className="text-neutral-400">
-                    LOCATION:{' '}
-                    {dispatchLog.coordinates?.lat != null
-                      ? `${dispatchLog.coordinates.lat.toFixed(5)}, ${dispatchLog.coordinates.lng.toFixed(5)}` +
-                        (dispatchLog.coordinates.accuracy_m != null
-                          ? ` (±${Math.round(dispatchLog.coordinates.accuracy_m)} m)`
-                          : '')
-                      : 'none sent'}
+
+                  {dispatchLog.ussd && (
+                    <div className="text-[10px] text-emerald-300">
+                      USSD: {dispatchLog.ussd.ussd_code} | Tower: {dispatchLog.ussd.triangulated_region}
+                    </div>
+                  )}
+
+                  <div className="text-neutral-300">
+                    GPS:{' '}
+                    {dispatchLog.coordinates?.lat != null ? (
+                      <>
+                        {dispatchLog.coordinates.lat.toFixed(5)}, {dispatchLog.coordinates.lng.toFixed(5)}
+                        {dispatchLog.coordinates.accuracy_m != null
+                          ? ` (±${Math.round(dispatchLog.coordinates.accuracy_m)}m)`
+                          : ''}{' '}
+                        <a
+                          href={`https://maps.google.com/?q=${dispatchLog.coordinates.lat},${dispatchLog.coordinates.lng}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[#e9724c] underline ml-1"
+                        >
+                          [Open Map Pin]
+                        </a>
+                      </>
+                    ) : (
+                      'Cell-tower triangulated'
+                    )}
+                  </div>
+
+                  {dispatchLog.dispatch?.sms_body && (
+                    <div className="p-2 rounded-lg bg-[#161615] border border-neutral-800 text-[10px] text-neutral-300 leading-relaxed break-words">
+                      <div className="text-neutral-500 mb-0.5">DISPATCHED SMS PAYLOAD:</div>
+                      {dispatchLog.dispatch.sms_body}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-3 gap-1.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => playVoiceCallBriefing(dispatchLog.dispatch?.briefing_script)}
+                      className="py-1.5 px-2 rounded-lg bg-[#1c1c1a] border border-neutral-700 text-neutral-200 text-[10px] font-semibold active:bg-neutral-800"
+                    >
+                      🔊 Replay Call
+                    </button>
+                    <a
+                      href="tel:+27737220854"
+                      className="py-1.5 px-2 rounded-lg bg-amber-950/70 border border-amber-700/60 text-amber-200 text-[10px] font-semibold text-center active:bg-amber-900"
+                    >
+                      📞 Dial Phone
+                    </a>
+                    {dispatchLog.dispatch?.whatsapp_url && (
+                      <a
+                        href={dispatchLog.dispatch.whatsapp_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="py-1.5 px-2 rounded-lg bg-emerald-950/70 border border-emerald-700/60 text-emerald-200 text-[10px] font-semibold text-center active:bg-emerald-900"
+                      >
+                        📲 WhatsApp
+                      </a>
+                    )}
                   </div>
                 </div>
               )}

@@ -4,6 +4,6 @@
 **/__pycache__
 **/.env
 frontend/dist
-docs
+flutter
 .vscode
 

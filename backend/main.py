@@ -28,7 +28,7 @@ app.include_router(sos.router, prefix="/api/v1/sos", tags=["SOS & Dispatch"])
 app.include_router(evidence.router, prefix="/api/v1/evidence", tags=["Forensic Evidence"])
 app.include_router(legal.router, prefix="/api/v1/legal", tags=["Form 06 Legal Automation"])
 
-
+ 
 @app.get("/api/health")
 async def health_check():
     return {

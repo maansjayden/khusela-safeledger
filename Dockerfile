@@ -13,6 +13,7 @@ WORKDIR /app
 COPY backend/requirements.txt backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 COPY backend/ backend/
+COPY docs/dv-Form06-J480.pdf docs/dv-Form06-J480.pdf
 COPY --from=frontend /app/frontend/dist frontend/dist
 WORKDIR /app/backend
 EXPOSE 8000

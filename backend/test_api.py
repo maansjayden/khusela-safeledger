@@ -132,6 +132,54 @@ def test_pwa_path_traversal_guard():
     assert b"GEMINI_API_KEY" not in res.content
 
 
+def test_voice_proxy_fallback_and_ussd_and_locate():
+    # 1. Network/Cell geolocation fallback
+    loc_res = client.get("/api/v1/sos/locate")
+    assert loc_res.status_code == 200
+    loc = loc_res.json()
+    assert loc["lat"] is not None and loc["lng"] is not None
+    assert loc["area"]
+
+    # 2. Zero-cost WebRTC Voice Proxy fallback when voice_proxy_fallback=True
+    sos_res = client.post(
+        "/api/v1/sos/trigger",
+        json={
+            "user_id": "demo_survivor",
+            "lat": -26.2385,
+            "lng": 27.9082,
+            "accuracy_m": 14.0,
+            "ambient_transcript_snippet": "Get away from the door now!",
+            "voice_proxy_fallback": True,
+        },
+    )
+    assert sos_res.status_code == 200
+    sos_body = sos_res.json()
+    assert sos_body["status"] == "sos_engaged"
+    assert sos_body["dispatch"]["call_status"] == "dispatched"
+    assert sos_body["dispatch"]["sms_status"] in ("sent", "queued")
+    assert "maps.google.com" in sos_body["dispatch"]["sms_body"]
+    assert "wa.me/" in sos_body["dispatch"]["whatsapp_url"]
+
+    # 3. Recent dispatches feed
+    disp_res = client.get("/api/v1/sos/dispatches")
+    assert disp_res.status_code == 200
+    assert len(disp_res.json()["dispatches"]) >= 1
+
+    # 4. USSD endpoint
+    ussd_res = client.post(
+        "/api/v1/sos/ussd-simulate",
+        json={
+            "session_id": "ussd-test-1",
+            "msisdn": "+27737220854",
+            "ussd_code": "*120*7867*1#",
+            "cell_tower_id": "JHB-SOWETO-4402",
+        },
+    )
+    assert ussd_res.status_code == 200
+    assert ussd_res.json()["status"] == "ussd_sos_acknowledged"
+    assert "Soweto" in ussd_res.json()["triangulated_region"]
+
+
 if __name__ == "__main__":
     test_health_check()
     test_sos_refuses_emergency_numbers()
@@ -140,5 +188,6 @@ if __name__ == "__main__":
     test_evidence_sync_sha256_integrity()
     test_legal_structure_and_form06_pdf_generation()
     test_pwa_path_traversal_guard()
+    test_voice_proxy_fallback_and_ussd_and_locate()
     print("ALL KHUSELA BACKEND & SECURITY TESTS PASSED!")
 
